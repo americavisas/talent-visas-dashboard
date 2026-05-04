@@ -27,18 +27,99 @@ const INTEGRATIONS = [
 function ToolResult({ toolName, result }: { toolName: string; result: unknown }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="my-2 border border-blue-100 rounded-lg overflow-hidden text-sm">
+    <div className="my-1 border border-blue-100 rounded-lg overflow-hidden text-sm">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-1.5 bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors text-xs"
       >
-        <span className="flex items-center gap-2"><Zap size={14} /> {toolName}</span>
-        <ChevronRight size={14} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+        <span className="flex items-center gap-2"><Zap size={12} /> {toolName}</span>
+        <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && (
         <pre className="p-3 bg-gray-50 text-xs overflow-x-auto text-gray-700 max-h-64">
           {JSON.stringify(result, null, 2)}
         </pre>
+      )}
+    </div>
+  );
+}
+
+interface UIPart {
+  type: string;
+  text?: string;
+  toolName?: string;
+  state?: string;
+  input?: unknown;
+  output?: unknown;
+}
+
+function AssistantMessage({ parts }: { parts: UIPart[] }) {
+  const [showTools, setShowTools] = useState(false);
+
+  const toolParts = parts.filter(
+    (p) => p.type === 'dynamic-tool' || (typeof p.type === 'string' && p.type.startsWith('tool-'))
+  );
+
+  // Build a unique list of tool names actually used (deduped)
+  const toolNames = Array.from(
+    new Set(
+      toolParts.map((p) => p.toolName ?? p.type.replace('tool-', ''))
+    )
+  );
+
+  return (
+    <div className="space-y-2">
+      {parts.map((part, i) => {
+        if (part.type === 'text') {
+          if (!part.text) return null;
+          return (
+            <div
+              key={i}
+              className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-gray-800 leading-relaxed whitespace-pre-wrap"
+            >
+              {part.text}
+            </div>
+          );
+        }
+        // Tool parts are NOT rendered inline — collapsed into the footer below
+        return null;
+      })}
+
+      {toolParts.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowTools((v) => !v)}
+            className="text-xs text-gray-400 hover:text-blue-600 flex items-center gap-1.5 transition-colors"
+          >
+            <Zap size={11} />
+            <span>
+              used {toolParts.length} tool{toolParts.length === 1 ? '' : 's'}
+              {toolNames.length > 0 && (
+                <span className="text-gray-300"> · {toolNames.slice(0, 4).join(', ')}{toolNames.length > 4 ? '…' : ''}</span>
+              )}
+            </span>
+            <ChevronRight size={10} className={`transition-transform ${showTools ? 'rotate-90' : ''}`} />
+          </button>
+          {showTools && (
+            <div className="mt-2 space-y-1">
+              {toolParts.map((part, i) => {
+                const name = part.toolName ?? part.type.replace('tool-', '');
+                if (part.state === 'output-available') {
+                  return <ToolResult key={i} toolName={name} result={part.output} />;
+                }
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg"
+                  >
+                    <Zap size={11} className="animate-pulse" />
+                    {name} ({part.state})
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -217,40 +298,7 @@ export default function Dashboard() {
                       .map((p, i) => <span key={i}>{(p as { type: 'text'; text: string }).text}</span>)}
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {message.parts?.map((part, i) => {
-                      if (part.type === 'text') {
-                        const textPart = part as { type: 'text'; text: string };
-                        if (!textPart.text) return null;
-                        return (
-                          <div key={i} className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-                            {textPart.text}
-                          </div>
-                        );
-                      }
-                      // Tool parts: type is 'tool-{name}' or 'dynamic-tool'
-                      if (part.type === 'dynamic-tool' || (typeof part.type === 'string' && part.type.startsWith('tool-'))) {
-                        const toolPart = part as {
-                          type: string;
-                          toolName?: string;
-                          state: string;
-                          input?: unknown;
-                          output?: unknown;
-                        };
-                        const toolName = toolPart.toolName ?? part.type.replace('tool-', '');
-                        if (toolPart.state === 'output-available') {
-                          return <ToolResult key={i} toolName={toolName} result={toolPart.output} />;
-                        }
-                        return (
-                          <div key={i} className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
-                            <Zap size={14} className="animate-pulse" />
-                            Running {toolName}...
-                          </div>
-                        );
-                      }
-                      return null;
-                    })}
-                  </div>
+                  <AssistantMessage parts={message.parts ?? []} />
                 )}
               </div>
               {message.role === 'user' && (
