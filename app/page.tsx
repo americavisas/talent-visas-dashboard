@@ -330,7 +330,7 @@ export default function Dashboard() {
                       {status === 'streaming' && (!currentTool || currentToolState === 'output-available') && 'Working…'}
                     </span>
                     <span className="ml-auto flex items-center gap-3 text-xs text-blue-600/70 font-normal">
-                      {stepCount > 0 && <span>step {stepCount}/20</span>}
+                      {stepCount > 0 && <span>step {stepCount}/12</span>}
                       <span>{elapsedSec}s</span>
                       <button
                         onClick={() => stop?.()}
@@ -346,18 +346,28 @@ export default function Dashboard() {
             </div>
           )}
 
-          {error && !isLoading && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center shrink-0 mt-1">
-                <AlertCircle size={16} className="text-white" />
+          {error && !isLoading && (() => {
+            const msg = (error.message || 'Unknown error').toLowerCase();
+            const isNetwork = msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch');
+            return (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center shrink-0 mt-1">
+                  <AlertCircle size={16} className="text-white" />
+                </div>
+                <div className="flex-1 max-w-2xl bg-red-50 border border-red-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-red-800">
+                  <div className="font-medium mb-1">
+                    {isNetwork ? 'The connection dropped before the agent finished' : 'The agent ran into a problem'}
+                  </div>
+                  <div className="text-xs text-red-700/80 break-words">{error.message || 'Unknown error'}</div>
+                  <div className="text-xs text-red-600/60 mt-2">
+                    {isNetwork
+                      ? 'The agent was likely still working when the 5-min function timeout hit. Try the same prompt again — the GitHub commits it already made are saved. Or break the request into smaller pieces.'
+                      : 'Tip: ask in smaller chunks (one task at a time) — context can blow up when chaining many large tool results.'}
+                  </div>
+                </div>
               </div>
-              <div className="flex-1 max-w-2xl bg-red-50 border border-red-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-red-800">
-                <div className="font-medium mb-1">The agent ran into a problem</div>
-                <div className="text-xs text-red-700/80 break-words">{error.message || 'Unknown error'}</div>
-                <div className="text-xs text-red-600/60 mt-2">Tip: ask in smaller chunks (one task at a time) — context can blow up when chaining many large tool results.</div>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div ref={scrollRef} />
         </div>

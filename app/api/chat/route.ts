@@ -4,6 +4,13 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { streamText, tool, convertToModelMessages, stepCountIs } from 'ai';
 import { z } from 'zod';
 
+// Explicit Vercel function config — Fluid Compute, 300s max, Node runtime.
+// The 'network error' the user saw was the function timing out at the
+// previous default while the agent was still streaming.
+export const runtime = 'nodejs';
+export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
+
 const DEFAULT_REPO = 'americavisas/lighthouse-talent-hub';
 const DEFAULT_BRANCH = 'main';
 
@@ -148,7 +155,11 @@ export async function POST(req: Request) {
     model: anthropic('claude-sonnet-4-6'),
     system: SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
-    stopWhen: stepCountIs(20),
+    // 12 steps × ~20s avg = ~240s, comfortably under the 300s function ceiling.
+    stopWhen: stepCountIs(12),
+    // Per-step output cap — prevents one runaway 8K-token essay from blowing the timeout.
+    // The agent can still emit total >8K across multiple steps if needed.
+    maxOutputTokens: 4096,
     tools: {
       // ── General-purpose agentic tools ──────────────────────
       readFile: tool({
