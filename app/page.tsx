@@ -20,6 +20,7 @@ interface StatsResponse {
     delta: { sessions: number; users: number; conversions: number };
   };
   error?: string;
+  hint?: string;
 }
 
 function formatNumber(n: number): string {
@@ -344,9 +345,11 @@ export default function Dashboard() {
             />
           </div>
           {!statsLoading && stats && !stats.ok && (
-            <p className="text-[10px] text-red-500 mt-2 break-words" title={stats.error}>
-              GA4 error: {stats.error?.slice(0, 60)}
-            </p>
+            <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded text-[10px] text-red-700">
+              <div className="font-semibold mb-0.5">GA4 not connected</div>
+              <div className="break-words mb-1">{stats.error?.slice(0, 120)}</div>
+              {stats.hint && <div className="text-red-600/80">{stats.hint}</div>}
+            </div>
           )}
         </div>
 
