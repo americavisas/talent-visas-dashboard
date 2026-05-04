@@ -76,11 +76,12 @@ export default function Dashboard() {
   const currentTool = lastTool?.toolName ?? lastTool?.type?.replace('tool-', '');
   const currentToolState = lastTool?.state;
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom only when message count changes or loading state flips
+  // (NOT on elapsedSec tick — would scroll every 500ms and feel like a crash)
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading, elapsedSec]);
+  }, [messages.length, isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
