@@ -24,12 +24,23 @@ Key context:
 - Target audience: high-skilled professionals seeking US talent visas`;
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  const body = await req.json();
+  console.log('REQUEST BODY:', JSON.stringify(body).slice(0, 800));
+  const { messages } = body;
+
+  let modelMessages;
+  try {
+    modelMessages = convertToModelMessages(messages);
+    console.log('CONVERTED:', JSON.stringify(modelMessages).slice(0, 400));
+  } catch (e: any) {
+    console.error('CONVERT FAILED:', e?.message, 'messages was:', JSON.stringify(messages).slice(0, 500));
+    throw e;
+  }
 
   const result = streamText({
     model: anthropic('claude-sonnet-4-6'),
     system: SYSTEM_PROMPT,
-    messages: convertToModelMessages(messages),
+    messages: modelMessages,
     tools: {
       generateKeywords: tool({
         description: 'Generate Google Ads keywords for a specific visa type, organized by match type and ad group',
