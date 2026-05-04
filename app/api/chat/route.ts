@@ -16,6 +16,10 @@ You manage everything:
 Your personality: direct, strategic, action-oriented. Don't just advise — execute.
 When you identify something to fix, fix it. When you suggest a landing page, build it.
 
+IMPORTANT: The generateLandingPage tool actually commits the page to the lighthouse-talent-hub
+GitHub repo and triggers a Vercel deploy. After calling it successfully, tell the user the live
+URL where the page will appear (talent-visas.com/<slug>) and that it'll be live in ~1 minute.
+
 Key context:
 - Domain: talent-visas.com
 - GitHub: github.com/americavisas/lighthouse-talent-hub
@@ -207,12 +211,48 @@ export default function ${visaType.replace(/[^a-zA-Z]/g, '')}Page() {
     </main>
   )
 }`;
-          return {
-            component,
-            filePath: `app/${slug}/page.tsx`,
-            instructions: `Add this file to your lighthouse-talent-hub repo at app/${slug}/page.tsx — Vercel will auto-deploy.`,
-            seoMetadata: { title: `${visaType} Attorney | Talent Visas`, slug: `/${slug}` },
-          };
+          // Actually commit it to americavisas/lighthouse-talent-hub via GitHub API
+          const filePath = `app/${slug}/page.tsx`;
+          const ghToken = process.env.GITHUB_TOKEN;
+          const repo = 'americavisas/lighthouse-talent-hub';
+          const branch = 'main';
+
+          if (!ghToken) {
+            return { component, filePath, error: 'GITHUB_TOKEN not configured', seoMetadata: { title: `${visaType} Attorney | Talent Visas`, slug: `/${slug}` } };
+          }
+
+          try {
+            // Check if file already exists (need its sha to update)
+            const existing = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}?ref=${branch}`, {
+              headers: { 'Authorization': `Bearer ${ghToken}`, 'Accept': 'application/vnd.github+json' },
+            });
+            const existingData: any = existing.status === 200 ? await existing.json() : null;
+
+            const putRes = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, {
+              method: 'PUT',
+              headers: { 'Authorization': `Bearer ${ghToken}`, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: `Add ${visaType} landing page (${slug})`,
+                content: Buffer.from(component, 'utf8').toString('base64'),
+                branch,
+                ...(existingData?.sha ? { sha: existingData.sha } : {}),
+              }),
+            });
+            const putData: any = await putRes.json();
+            if (!putRes.ok) {
+              return { component, filePath, error: putData.message || `GitHub returned ${putRes.status}`, seoMetadata: { title: `${visaType} Attorney | Talent Visas`, slug: `/${slug}` } };
+            }
+            return {
+              status: '✅ Committed and deploying',
+              filePath,
+              commitUrl: putData.commit?.html_url,
+              liveUrlSoon: `https://talent-visas.com/${slug}`,
+              note: 'Vercel will auto-deploy the lighthouse-talent-hub project in ~1 minute.',
+              seoMetadata: { title: `${visaType} Attorney | Talent Visas`, slug: `/${slug}` },
+            };
+          } catch (e: any) {
+            return { component, filePath, error: e?.message || 'Commit failed', seoMetadata: { title: `${visaType} Attorney | Talent Visas`, slug: `/${slug}` } };
+          }
         },
       }),
 
