@@ -24,27 +24,16 @@ Key context:
 - Target audience: high-skilled professionals seeking US talent visas`;
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  console.log('REQUEST BODY:', JSON.stringify(body).slice(0, 800));
-  const { messages } = body;
-
-  let modelMessages;
-  try {
-    modelMessages = convertToModelMessages(messages);
-    console.log('CONVERTED:', JSON.stringify(modelMessages).slice(0, 400));
-  } catch (e: any) {
-    console.error('CONVERT FAILED:', e?.message, 'messages was:', JSON.stringify(messages).slice(0, 500));
-    throw e;
-  }
+  const { messages } = await req.json();
 
   const result = streamText({
     model: anthropic('claude-sonnet-4-6'),
     system: SYSTEM_PROMPT,
-    messages: modelMessages,
+    messages: convertToModelMessages(messages),
     tools: {
       generateKeywords: tool({
         description: 'Generate Google Ads keywords for a specific visa type, organized by match type and ad group',
-        parameters: z.object({
+        inputSchema: z.object({
           visaTypes: z.array(z.string()).describe('Visa types to target e.g. ["EB-2 NIW", "O-1"]'),
           audience: z.string().optional().describe('Target audience description'),
           includeCompetitor: z.boolean().optional().describe('Include competitor/general terms'),
@@ -77,7 +66,7 @@ export async function POST(req: Request) {
 
       generateAdCopy: tool({
         description: 'Generate Google Responsive Search Ad copy: 15 headlines + 4 descriptions',
-        parameters: z.object({
+        inputSchema: z.object({
           visaType: z.string().describe('Visa type e.g. "O-1B Extraordinary Ability"'),
           sellingPoints: z.array(z.string()).optional().describe('Key differentiators'),
           targetAudience: z.string().optional().describe('Who sees this ad'),
@@ -119,7 +108,7 @@ export async function POST(req: Request) {
 
       recommendBudget: tool({
         description: 'Recommend Google Ads budget, bidding strategy and expected performance',
-        parameters: z.object({
+        inputSchema: z.object({
           visaTypes: z.array(z.string()),
           monthlyClientGoal: z.number().describe('New clients per month target'),
           geography: z.string().optional().describe('Target geography e.g. "nationwide US"'),
@@ -148,7 +137,7 @@ export async function POST(req: Request) {
 
       generateLandingPage: tool({
         description: 'Generate a complete Next.js landing page component for a specific visa type, ready to add to the website',
-        parameters: z.object({
+        inputSchema: z.object({
           visaType: z.string().describe('e.g. "O-1B Extraordinary Ability"'),
           targetAudience: z.string().describe('e.g. "artists, entertainers, performers"'),
           slug: z.string().describe('URL slug e.g. "o-1b-visa"'),
@@ -229,7 +218,7 @@ export default function ${visaType.replace(/[^a-zA-Z]/g, '')}Page() {
 
       searchWeb: tool({
         description: 'Search the web for competitor ads, immigration news, keyword data, or any research',
-        parameters: z.object({
+        inputSchema: z.object({
           query: z.string().describe('Search query'),
         }),
         execute: async (params: any) => {
@@ -240,7 +229,7 @@ export default function ${visaType.replace(/[^a-zA-Z]/g, '')}Page() {
 
       analyzeCompetitor: tool({
         description: 'Analyze a competitor immigration law firm website for their keywords, angles, and ad strategy',
-        parameters: z.object({
+        inputSchema: z.object({
           domain: z.string().describe('Competitor domain e.g. "murthy.com"'),
         }),
         execute: async (params: any) => {
@@ -260,7 +249,7 @@ export default function ${visaType.replace(/[^a-zA-Z]/g, '')}Page() {
 
       generateBlogPost: tool({
         description: 'Generate an SEO-optimized blog post for talent-visas.com on any immigration topic',
-        parameters: z.object({
+        inputSchema: z.object({
           topic: z.string().describe('Blog post topic e.g. "EB-2 NIW for software engineers"'),
           targetKeyword: z.string().describe('Primary SEO keyword'),
           wordCount: z.number().optional().describe('Target word count, default 800'),
@@ -293,7 +282,7 @@ export default function ${visaType.replace(/[^a-zA-Z]/g, '')}Page() {
 
       generateSocialPost: tool({
         description: 'Generate LinkedIn or Instagram posts about immigration news, visa tips, or success stories',
-        parameters: z.object({
+        inputSchema: z.object({
           platform: z.enum(['linkedin', 'instagram']),
           topic: z.string().describe('Post topic e.g. "EB-2 NIW approval for PhD researcher"'),
           tone: z.enum(['professional', 'educational', 'celebratory']).optional(),
