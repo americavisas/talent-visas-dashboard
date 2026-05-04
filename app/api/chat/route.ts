@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   const result = streamText({
     model: anthropic('claude-sonnet-4-6'),
     system: SYSTEM_PROMPT,
-    messages: convertToModelMessages(messages),
+    messages: await convertToModelMessages(messages),
     tools: {
       generateKeywords: tool({
         description: 'Generate Google Ads keywords for a specific visa type, organized by match type and ad group',
