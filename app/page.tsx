@@ -2,7 +2,7 @@
 
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState } from 'react';
-import { Send, Globe, Target, BarChart3, Search, Zap, ChevronRight, Bot, User, Square, AlertCircle } from 'lucide-react';
+import { Send, Globe, Target, BarChart3, Search, Zap, ChevronRight, Bot, User, Square, AlertCircle, Plus } from 'lucide-react';
 
 const QUICK_ACTIONS = [
   { label: 'O-1B Landing Page', prompt: 'Create a complete O-1B extraordinary ability landing page for performing artists and entertainers for talent-visas.com', icon: '🌐' },
@@ -125,9 +125,40 @@ function AssistantMessage({ parts }: { parts: UIPart[] }) {
   );
 }
 
+const STORAGE_KEY = 'talent-visas-chat-v1';
+
 export default function Dashboard() {
-  const { messages, sendMessage, status, stop, error } = useChat();
+  // Hydrate the initial messages from localStorage so refresh doesn't lose state
+  const [hydratedMessages, setHydratedMessages] = useState<unknown[] | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setHydratedMessages(JSON.parse(raw));
+      else setHydratedMessages([]);
+    } catch {
+      setHydratedMessages([]);
+    }
+  }, []);
+
+  const { messages, sendMessage, status, stop, error, setMessages } = useChat({
+    messages: (hydratedMessages ?? []) as never,
+  });
   const [input, setInput] = useState('');
+
+  // Persist messages on every change
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (hydratedMessages === null) return; // not yet hydrated
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    } catch {}
+  }, [messages, hydratedMessages]);
+
+  const newChat = () => {
+    if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+    setMessages([]);
+  };
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
@@ -251,9 +282,19 @@ export default function Dashboard() {
             <h1 className="font-bold text-gray-900">Marketing Agent</h1>
             <p className="text-sm text-gray-500">Managing talent-visas.com — ads, website, social &amp; analytics</p>
           </div>
-          <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-3 py-1.5 rounded-full">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            Agent Ready
+          <div className="flex items-center gap-2">
+            <button
+              onClick={newChat}
+              disabled={isLoading || messages.length === 0}
+              className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-full border border-gray-200 hover:border-blue-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="Start a new chat (clears the current conversation; persistent project memory is kept)"
+            >
+              <Plus size={14} /> New chat
+            </button>
+            <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-3 py-1.5 rounded-full">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              Agent Ready
+            </div>
           </div>
         </header>
 

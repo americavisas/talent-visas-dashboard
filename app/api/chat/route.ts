@@ -11,6 +11,44 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
+// ── Persistent project memory ────────────────────────────────
+// Reads MEMORY.md from americavisas/talent-visas-dashboard at request time,
+// cached in module memory for 30s, injected into the system prompt so the
+// agent remembers stable facts (visa focus, GTM IDs, repo paths, open items)
+// across sessions without you having to repeat them.
+const DASHBOARD_REPO = 'americavisas/talent-visas-dashboard';
+const MEMORY_PATH = 'MEMORY.md';
+let memoryCache: { content: string; sha: string; expiresAt: number } | null = null;
+
+async function loadMemory(): Promise<{ content: string; sha: string }> {
+  const now = Date.now();
+  if (memoryCache && memoryCache.expiresAt > now) {
+    return { content: memoryCache.content, sha: memoryCache.sha };
+  }
+  try {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) return { content: '(no GITHUB_TOKEN — memory not available)', sha: '' };
+    const r = await fetch(`https://api.github.com/repos/${DASHBOARD_REPO}/contents/${MEMORY_PATH}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    if (!r.ok) return { content: `(memory load failed: ${r.status})`, sha: '' };
+    const d: any = await r.json();
+    const content = Buffer.from(d.content, 'base64').toString('utf8');
+    memoryCache = { content, sha: d.sha, expiresAt: now + 30_000 };
+    return { content, sha: d.sha };
+  } catch (e: any) {
+    return { content: `(memory load error: ${e?.message})`, sha: '' };
+  }
+}
+
+function invalidateMemoryCache() {
+  memoryCache = null;
+}
+
 const DEFAULT_REPO = 'americavisas/lighthouse-talent-hub';
 const DEFAULT_BRANCH = 'main';
 
@@ -151,9 +189,21 @@ function resolveProject(name: string): string {
 export async function POST(req: Request) {
   const { messages } = await req.json();
 
+  // Load persistent memory and inject into the system prompt
+  const memory = await loadMemory();
+  const systemWithMemory = `${SYSTEM_PROMPT}
+
+---
+# PROJECT MEMORY (loaded from MEMORY.md in the dashboard repo)
+
+${memory.content}
+
+---
+End of project memory. The user does NOT have to remind you of these facts in chat — they are always loaded.`;
+
   const result = streamText({
     model: anthropic('claude-sonnet-4-6'),
-    system: SYSTEM_PROMPT,
+    system: systemWithMemory,
     messages: await convertToModelMessages(messages),
     // 12 steps × ~20s avg = ~240s, comfortably under the 300s function ceiling.
     stopWhen: stepCountIs(12),
@@ -482,6 +532,80 @@ export async function POST(req: Request) {
             const d: any = await r.json();
             if (!r.ok) return { error: d.error?.message || `Vercel ${r.status}` };
             return { id: d.id, url: d.url, state: d.readyState };
+          } catch (e: any) {
+            return { error: e?.message };
+          }
+        },
+      }),
+
+      // ── Memory tools ───────────────────────────────────────
+      rememberThis: tool({
+        description:
+          'Append a one-line fact to the persistent project MEMORY.md so future chat sessions remember it. Use for stable, durable facts (a new ID, a new repo, a new convention, a decision the user made). Do NOT use for transient chat content. Categories: business / tech / marketing / pending / convention.',
+        inputSchema: z.object({
+          note: z.string().describe('The fact to remember, written as a single concise sentence.'),
+          category: z
+            .enum(['business', 'tech', 'marketing', 'pending', 'convention'])
+            .describe('Where in MEMORY.md this fact belongs.'),
+        }),
+        execute: async (params: any) => {
+          try {
+            const mem = await loadMemory();
+            if (!mem.sha) return { error: 'Could not load current MEMORY.md' };
+            const today = new Date().toISOString().slice(0, 10);
+            const line = `- _(${today})_ ${params.note}`;
+            // Append to the end of the file under a "## Notes appended by the agent" section
+            let updated = mem.content;
+            const headerLine = '## Notes appended by the agent';
+            if (updated.includes(headerLine)) {
+              updated = updated.replace(headerLine, `${headerLine}\n${line}`);
+            } else {
+              updated = updated.replace(/(\n*)$/, `\n\n${headerLine}\n${line}\n`);
+            }
+            const r = await gh(`/repos/${DASHBOARD_REPO}/contents/${MEMORY_PATH}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: `memory: ${params.note.slice(0, 60)}`,
+                content: Buffer.from(updated, 'utf8').toString('base64'),
+                branch: 'master',
+                sha: mem.sha,
+              }),
+            });
+            const d: any = await r.json();
+            if (!r.ok) return { error: d.message || `GitHub ${r.status}` };
+            invalidateMemoryCache();
+            return { status: '✅ Remembered', note: params.note, category: params.category, commitUrl: d.commit?.html_url };
+          } catch (e: any) {
+            return { error: e?.message };
+          }
+        },
+      }),
+
+      updateMemory: tool({
+        description:
+          'Replace MEMORY.md entirely with new content. Use when restructuring the memory file (rare). For single-fact additions, prefer rememberThis.',
+        inputSchema: z.object({
+          content: z.string().describe('Full new contents of MEMORY.md (markdown).'),
+          message: z.string().describe('One-line commit message describing the change.'),
+        }),
+        execute: async (params: any) => {
+          try {
+            const mem = await loadMemory();
+            const r = await gh(`/repos/${DASHBOARD_REPO}/contents/${MEMORY_PATH}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: `memory: ${params.message}`,
+                content: Buffer.from(params.content, 'utf8').toString('base64'),
+                branch: 'master',
+                ...(mem.sha ? { sha: mem.sha } : {}),
+              }),
+            });
+            const d: any = await r.json();
+            if (!r.ok) return { error: d.message || `GitHub ${r.status}` };
+            invalidateMemoryCache();
+            return { status: '✅ Memory rewritten', commitUrl: d.commit?.html_url };
           } catch (e: any) {
             return { error: e?.message };
           }
