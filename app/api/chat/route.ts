@@ -3,6 +3,13 @@
 import { anthropic } from '@ai-sdk/anthropic';
 import { streamText, tool, convertToModelMessages, stepCountIs } from 'ai';
 import { z } from 'zod';
+import {
+  runGA4Report,
+  getGA4Summary,
+  getTopPages,
+  getTopSources,
+  getConversionsByEvent,
+} from '../_lib/ga4';
 
 // Explicit Vercel function config — Fluid Compute, 300s max, Node runtime.
 // The 'network error' the user saw was the function timing out at the
@@ -534,6 +541,84 @@ End of project memory. The user does NOT have to remind you of these facts in ch
             return { id: d.id, url: d.url, state: d.readyState };
           } catch (e: any) {
             return { error: e?.message };
+          }
+        },
+      }),
+
+      // ── Google Analytics 4 (real data) ─────────────────────
+      ga4Summary: tool({
+        description:
+          'Get a high-level GA4 summary for talent-visas.com over the last 30 days vs the previous 30 days. Returns sessions, users, conversions, engagement rate, plus % deltas. Use this when the user asks "how is the site doing", "what are the numbers", or for the sidebar overview.',
+        inputSchema: z.object({}),
+        execute: async () => {
+          try {
+            return await getGA4Summary();
+          } catch (e: any) {
+            return { error: e?.message || 'GA4 summary failed' };
+          }
+        },
+      }),
+
+      ga4TopPages: tool({
+        description:
+          'Top pages of talent-visas.com by sessions over the last 30 days, with conversions per page. Useful for spotting underperforming or top-converting pages.',
+        inputSchema: z.object({
+          limit: z.number().optional().describe('Max rows to return (default 10).'),
+        }),
+        execute: async (params: any) => {
+          try {
+            return await getTopPages(params?.limit || 10);
+          } catch (e: any) {
+            return { error: e?.message || 'GA4 top pages failed' };
+          }
+        },
+      }),
+
+      ga4TopSources: tool({
+        description:
+          'Top traffic sources / mediums (e.g. google/organic, direct, t.co/referral) over the last 30 days with sessions + conversions. Useful for understanding where leads come from.',
+        inputSchema: z.object({
+          limit: z.number().optional().describe('Max rows (default 10).'),
+        }),
+        execute: async (params: any) => {
+          try {
+            return await getTopSources(params?.limit || 10);
+          } catch (e: any) {
+            return { error: e?.message || 'GA4 top sources failed' };
+          }
+        },
+      }),
+
+      ga4ConversionsByEvent: tool({
+        description:
+          'Event counts grouped by event name (last 30 days). Useful for tracking the new conversion events: quiz_started, generate_lead, consultation_click.',
+        inputSchema: z.object({
+          limit: z.number().optional(),
+        }),
+        execute: async (params: any) => {
+          try {
+            return await getConversionsByEvent(params?.limit || 20);
+          } catch (e: any) {
+            return { error: e?.message || 'GA4 events failed' };
+          }
+        },
+      }),
+
+      ga4Report: tool({
+        description:
+          'Run a custom GA4 report. Use when ga4Summary / ga4TopPages / ga4TopSources / ga4ConversionsByEvent do not cover what you need. Common metrics: sessions, totalUsers, conversions, engagementRate, eventCount, screenPageViews, bounceRate. Common dimensions: pagePath, sessionSourceMedium, country, deviceCategory, eventName, date.',
+        inputSchema: z.object({
+          metrics: z.array(z.string()).describe('GA4 metric names'),
+          dimensions: z.array(z.string()).optional().describe('GA4 dimension names'),
+          startDate: z.string().optional().describe('YYYY-MM-DD or relative like "30daysAgo"'),
+          endDate: z.string().optional().describe('YYYY-MM-DD or relative like "today"'),
+          limit: z.number().optional(),
+        }),
+        execute: async (params: any) => {
+          try {
+            return await runGA4Report(params);
+          } catch (e: any) {
+            return { error: e?.message || 'GA4 report failed' };
           }
         },
       }),

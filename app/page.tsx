@@ -13,15 +13,67 @@ const QUICK_ACTIONS = [
   { label: 'Instagram Post', prompt: 'Write an Instagram post about talent visas for artists and performers — engaging tone with emojis and hashtags', icon: '📸' },
 ];
 
-const STATS = [
-  { label: 'Active Campaigns', value: '—', icon: Target, color: 'text-blue-600', bg: 'bg-blue-50' },
-  { label: 'Monthly Ad Spend', value: '—', icon: BarChart3, color: 'text-green-600', bg: 'bg-green-50' },
-  { label: 'Website Visitors', value: '—', icon: Globe, color: 'text-purple-600', bg: 'bg-purple-50' },
-  { label: 'Search Rankings', value: '—', icon: Search, color: 'text-orange-600', bg: 'bg-orange-50' },
-];
+interface StatsResponse {
+  ok: boolean;
+  ga4?: {
+    current: { sessions: number; users: number; conversions: number; engagementRate: number };
+    delta: { sessions: number; users: number; conversions: number };
+  };
+  error?: string;
+}
 
-const INTEGRATIONS = [
-  'Google Ads', 'Analytics', 'Search Console', 'GitHub', 'LinkedIn', 'Instagram',
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return n.toString();
+}
+
+function StatCard({
+  label,
+  value,
+  delta,
+  loading,
+  icon: Icon,
+  color,
+  bg,
+}: {
+  label: string;
+  value: string;
+  delta?: number;
+  loading?: boolean;
+  icon: any;
+  color: string;
+  bg: string;
+}) {
+  const deltaColor = delta === undefined ? '' : delta > 0 ? 'text-green-600' : delta < 0 ? 'text-red-500' : 'text-gray-400';
+  const deltaPrefix = delta === undefined ? '' : delta > 0 ? '+' : '';
+  return (
+    <div className={`flex items-center gap-3 p-2 rounded-lg ${bg}`}>
+      <Icon size={16} className={color} />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-gray-500 truncate">{label}</div>
+        <div className="flex items-baseline gap-1.5">
+          <div className={`text-sm font-bold ${color}`}>{loading ? '…' : value}</div>
+          {!loading && delta !== undefined && (
+            <div className={`text-[10px] font-medium ${deltaColor}`}>
+              {deltaPrefix}
+              {delta}%
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const INTEGRATIONS: { name: string; status: 'live' | 'setup' }[] = [
+  { name: 'GitHub', status: 'live' },
+  { name: 'Vercel', status: 'live' },
+  { name: 'Analytics (GA4)', status: 'live' },
+  { name: 'Google Ads', status: 'setup' },
+  { name: 'Search Console', status: 'setup' },
+  { name: 'LinkedIn', status: 'setup' },
+  { name: 'Instagram', status: 'setup' },
 ];
 
 function ToolResult({ toolName, result }: { toolName: string; result: unknown }) {
@@ -160,6 +212,27 @@ export default function Dashboard() {
     setMessages([]);
   };
 
+  // Fetch live sidebar stats from /api/stats (GA4)
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch('/api/stats');
+        const d = await r.json();
+        if (alive) setStats(d);
+      } catch (e) {
+        if (alive) setStats({ ok: false, error: (e as Error)?.message || 'Stats fetch failed' });
+      } finally {
+        if (alive) setStatsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const isLoading = status === 'submitted' || status === 'streaming';
 
   // Track elapsed time and current activity for visible "thinking" state
@@ -227,19 +300,54 @@ export default function Dashboard() {
 
         {/* Stats */}
         <div className="p-4 border-b border-gray-100">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Overview</div>
-          <div className="space-y-2">
-            {STATS.map((stat) => (
-              <div key={stat.label} className={`flex items-center gap-3 p-2 rounded-lg ${stat.bg}`}>
-                <stat.icon size={16} className={stat.color} />
-                <div>
-                  <div className="text-xs text-gray-500">{stat.label}</div>
-                  <div className={`text-sm font-bold ${stat.color}`}>{stat.value}</div>
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Last 30 days</div>
+            {!statsLoading && stats?.ok && (
+              <div className="w-1.5 h-1.5 bg-green-500 rounded-full" title="Live GA4 data" />
+            )}
           </div>
-          <p className="text-xs text-gray-400 mt-2 text-center">Connect APIs to see live data</p>
+          <div className="space-y-2">
+            <StatCard
+              label="Visitors"
+              value={stats?.ga4 ? formatNumber(stats.ga4.current.users) : '—'}
+              delta={stats?.ga4?.delta.users}
+              loading={statsLoading}
+              icon={Globe}
+              color="text-purple-600"
+              bg="bg-purple-50"
+            />
+            <StatCard
+              label="Sessions"
+              value={stats?.ga4 ? formatNumber(stats.ga4.current.sessions) : '—'}
+              delta={stats?.ga4?.delta.sessions}
+              loading={statsLoading}
+              icon={BarChart3}
+              color="text-green-600"
+              bg="bg-green-50"
+            />
+            <StatCard
+              label="Conversions"
+              value={stats?.ga4 ? formatNumber(stats.ga4.current.conversions) : '—'}
+              delta={stats?.ga4?.delta.conversions}
+              loading={statsLoading}
+              icon={Target}
+              color="text-blue-600"
+              bg="bg-blue-50"
+            />
+            <StatCard
+              label="Engagement"
+              value={stats?.ga4 ? `${stats.ga4.current.engagementRate}%` : '—'}
+              loading={statsLoading}
+              icon={Search}
+              color="text-orange-600"
+              bg="bg-orange-50"
+            />
+          </div>
+          {!statsLoading && stats && !stats.ok && (
+            <p className="text-[10px] text-red-500 mt-2 break-words" title={stats.error}>
+              GA4 error: {stats.error?.slice(0, 60)}
+            </p>
+          )}
         </div>
 
         {/* Quick Actions */}
@@ -264,10 +372,16 @@ export default function Dashboard() {
         <div className="p-4 border-t border-gray-100">
           <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Integrations</div>
           <div className="space-y-1.5">
-            {INTEGRATIONS.map((name) => (
-              <div key={name} className="flex items-center justify-between text-xs">
-                <span className="text-gray-600">{name}</span>
-                <span className="px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-400">Setup</span>
+            {INTEGRATIONS.map((it) => (
+              <div key={it.name} className="flex items-center justify-between text-xs">
+                <span className="text-gray-600">{it.name}</span>
+                {it.status === 'live' ? (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium bg-green-50 text-green-600">
+                    <span className="w-1 h-1 bg-green-500 rounded-full" /> Live
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-400">Setup</span>
+                )}
               </div>
             ))}
           </div>

@@ -23,7 +23,10 @@ The agent can update it via the `rememberThis` (append a note) or `updateMemory`
   - Existing pages: O-1B at `src/pages/O1BVisaPage.tsx`, O-1A at `src/pages/O1AVisaPage.tsx`.
 - **Dashboard repo:** `americavisas/talent-visas-dashboard` (this project, Next.js 16 on Vercel, project `prj_fPKjaCMNSHuoWZbqAcfsps5dbpQZ`).
 - **GTM container:** `GTM-MXTFHC33`
-- **GA4 property:** `G-MNWWSXMR0B`
+- **GA4 measurement ID:** `G-MNWWSXMR0B`
+- **GA4 numeric Property ID:** `530259629` (used by the Data API tools below)
+- **GA4 service account:** `talent-visas-dashboard@talent-portal-493417.iam.gserviceaccount.com` (Viewer access on the property; credentials in Vercel env `GOOGLE_APPLICATION_CREDENTIALS_JSON` + `GA4_PROPERTY_ID`)
+- **GA4 tools available to the agent:** `ga4Summary`, `ga4TopPages`, `ga4TopSources`, `ga4ConversionsByEvent`, `ga4Report` (custom). Use these when the user asks about traffic, conversions, page performance, or where leads come from.
 
 ## Conversion tracking (LIVE as of 2026-05-04)
 
@@ -51,6 +54,7 @@ The `gtagConversion()` lines for direct Google Ads conversion firing are comment
 - [ ] Link GA4 to Google Ads, import conversions
 - [ ] Build out site extensions (sitelinks for /o1a-visa and /o1b-visa) — needs Ads token first
 - [ ] Wire a real web search API (Brave / Tavily) so `webSearch` returns real results
+- [ ] Add Search Console (same service account email needs Restricted user access in Search Console settings)
 
 ## Conventions the agent should follow
 
