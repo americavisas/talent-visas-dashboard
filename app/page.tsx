@@ -45,16 +45,22 @@ function ToolResult({ toolName, result }: { toolName: string; result: unknown })
 }
 
 export default function Dashboard() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput } = useChat({
-    api: '/api/chat',
-  });
+  const { messages, sendMessage, status } = useChat();
+  const [input, setInput] = useState('');
 
-  const sendQuickAction = (prompt: string) => {
-    setInput(prompt);
-    setTimeout(() => {
-      const form = document.getElementById('chat-form') as HTMLFormElement;
-      form?.requestSubmit();
-    }, 50);
+  const isLoading = status === 'submitted' || status === 'streaming';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+    const text = input;
+    setInput('');
+    await sendMessage({ text });
+  };
+
+  const sendQuickAction = async (prompt: string) => {
+    if (isLoading) return;
+    await sendMessage({ text: prompt });
   };
 
   return (
@@ -99,7 +105,8 @@ export default function Dashboard() {
               <button
                 key={action.label}
                 onClick={() => sendQuickAction(action.prompt)}
-                className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2"
+                disabled={isLoading}
+                className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
               >
                 <span>{action.icon}</span>
                 <span>{action.label}</span>
@@ -172,27 +179,39 @@ export default function Dashboard() {
               <div className="max-w-2xl min-w-0">
                 {message.role === 'user' ? (
                   <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm text-sm">
-                    {typeof message.content === 'string' ? message.content : ''}
+                    {message.parts
+                      .filter((p) => p.type === 'text')
+                      .map((p, i) => <span key={i}>{(p as { type: 'text'; text: string }).text}</span>)}
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {message.parts?.map((part, i) => {
                       if (part.type === 'text') {
+                        const textPart = part as { type: 'text'; text: string };
+                        if (!textPart.text) return null;
                         return (
                           <div key={i} className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-                            {part.text}
+                            {textPart.text}
                           </div>
                         );
                       }
-                      if (part.type === 'tool-invocation') {
-                        const inv = part.toolInvocation;
-                        if (inv.state === 'result') {
-                          return <ToolResult key={i} toolName={inv.toolName} result={inv.result} />;
+                      // Tool parts: type is 'tool-{name}' or 'dynamic-tool'
+                      if (part.type === 'dynamic-tool' || (typeof part.type === 'string' && part.type.startsWith('tool-'))) {
+                        const toolPart = part as {
+                          type: string;
+                          toolName?: string;
+                          state: string;
+                          input?: unknown;
+                          output?: unknown;
+                        };
+                        const toolName = toolPart.toolName ?? part.type.replace('tool-', '');
+                        if (toolPart.state === 'output-available') {
+                          return <ToolResult key={i} toolName={toolName} result={toolPart.output} />;
                         }
                         return (
                           <div key={i} className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
                             <Zap size={14} className="animate-pulse" />
-                            Running {inv.toolName}...
+                            Running {toolName}...
                           </div>
                         );
                       }
@@ -227,10 +246,10 @@ export default function Dashboard() {
 
         {/* Input */}
         <div className="bg-white border-t border-gray-200 px-6 py-4 shrink-0">
-          <form id="chat-form" onSubmit={handleSubmit} className="flex gap-3">
+          <form onSubmit={handleSubmit} className="flex gap-3">
             <input
               value={input}
-              onChange={handleInputChange}
+              onChange={(e) => setInput(e.target.value)}
               placeholder="e.g. Create an O-1B landing page, write an EB-2 NIW post, analyze competitor keywords..."
               className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50"
               disabled={isLoading}
