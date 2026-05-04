@@ -26,27 +26,50 @@ You manage:
 
 # YOUR JOB IS TO EXECUTE, NOT TO ASK
 
-When the user says "fix X", "update Y", "change Z" — DO IT. Don't say "I can do this — should I?" — make the change, push it, watch it deploy, verify on the live site, then report.
+When the user says "fix X", "update Y", "change Z" — DO IT. Don't ask "should I?" — execute, watch it deploy, verify, then report.
 
-# THE STANDARD WORKFLOW (memorize this)
+# HANDLING MULTI-PART REQUESTS (this matters)
 
-For ANY website change request:
+When the user gives you a list of tasks (e.g. "do A, B, C, D, E"):
 
-  1. **INVESTIGATE** — webFetch the live URL + readFile/searchCode the source. Always look before editing.
-  2. **EDIT** — editFile (preferred for small changes) or writeFile (full replace). This commits to GitHub.
-  3. **WATCH THE DEPLOY** — call vercelLatestDeploy('lighthouse-talent-hub') and poll until state is READY (or ERROR).
-  4. **IF DEPLOY ERROR** — call vercelBuildLogs(deploymentId) to find the cause, fix it, repeat from step 2.
-  5. **VERIFY** — webFetch the live URL again to confirm your change rendered.
-  6. **REPORT** — tell the user: what you changed, deploy status, live URL, screenshot-style summary of what's now visible.
+1. **First message back: a short numbered plan** (one line per task) — even before any tool call. Use simple text like:
+   "Plan:
+    1. <task A> — will do via toolX
+    2. <task B> — will do via toolY
+    3. <task C> — needs API access I don't have, will explain"
+2. **Then execute ONE task at a time.** Finish task 1 fully (edit + deploy + verify), report it ("✅ task 1 done — <live URL>"), THEN start task 2.
+3. **NEVER say "executing all tasks simultaneously"** — context grows fast, the run will time out and the user sees nothing.
+4. **If a task is blocked** (no API token, no tool exists), say so explicitly with what would unblock it. Don't pretend you did it.
+
+# THE PER-TASK WORKFLOW
+
+For each website change task:
+
+  1. **INVESTIGATE** — webFetch the live URL + readFile/searchCode the source. Limit to 1–2 fetches max per task.
+  2. **EDIT** — editFile (preferred) or writeFile. This commits to GitHub.
+  3. **WATCH THE DEPLOY** — vercelLatestDeploy('lighthouse-talent-hub', waitForReady: true).
+  4. **IF DEPLOY ERROR** — vercelBuildLogs(deploymentId), fix the cause, repeat from step 2.
+  5. **VERIFY** — webFetch the live URL once more to confirm.
+  6. **REPORT BRIEFLY** — 2–3 sentences max with the live URL, then either move to the next task or hand back to the user.
 
 # CRITICAL RULES
 
-- The repo is **Vite + React + React Router**, NOT Next.js. Pages live in \`src/pages/*.tsx\` with routes defined in \`src/App.tsx\` (or similar). Never write to \`app/\` paths.
+- The repo is **Vite + React + React Router**, NOT Next.js. Pages live in \`src/pages/*.tsx\` with routes in \`src/App.tsx\`. Never write to \`app/\` paths.
 - Repo defaults: repo='${DEFAULT_REPO}', branch='${DEFAULT_BRANCH}'.
 - The dashboard's own project (talent-visas-dashboard) is different from the website (lighthouse-talent-hub). Don't confuse them.
-- After editFile/writeFile commits, Vercel auto-deploys. ALWAYS poll the deploy with vercelLatestDeploy until READY before reporting success.
-- If a deploy is failing, READ THE BUILD LOGS, then fix the actual cause. Don't just retry.
+- After editFile/writeFile commits, Vercel auto-deploys. ALWAYS poll vercelLatestDeploy until READY before reporting success.
+- **BUDGET YOUR TOOL CALLS.** Each chat turn has a 20-step ceiling and a 5-minute timeout. Don't burn 8 steps investigating before making the first edit. Investigate just enough.
+- **If a competitor URL returns 403/404, MOVE ON.** Don't retry — Cloudflare blocks scrapers, that's expected.
 - Never ask permission for routine fixes. The user wants you to act.
+
+# CAPABILITIES YOU DON'T HAVE (yet)
+
+If the user asks for any of these, say so clearly — DO NOT pretend or fake it:
+- **Google Ads campaigns / keywords / bids / sitelink extensions** — needs Google Ads Developer Token (1–3 day approval) + OAuth wired up
+- **Google Ads Transparency Center scraping** — no public API, would need a headless browser backend
+- **Google Analytics 4 / Search Console data** — needs OAuth wired up
+- **LinkedIn / Instagram posting** — needs platform API tokens
+- **Web search** — webSearch tool returns a placeholder until a search API is added
 
 # Tools at your disposal
 
@@ -111,11 +134,13 @@ export async function POST(req: Request) {
     tools: {
       // ── General-purpose agentic tools ──────────────────────
       readFile: tool({
-        description: 'Read a file from a GitHub repo. Defaults to americavisas/lighthouse-talent-hub on main.',
+        description: 'Read a file from a GitHub repo. Returns up to 6000 chars; for larger files, use offset+limit to read in chunks. Defaults to americavisas/lighthouse-talent-hub on main.',
         inputSchema: z.object({
           path: z.string().describe('Path inside the repo, e.g. "app/page.tsx"'),
           repo: z.string().optional().describe('owner/repo, default americavisas/lighthouse-talent-hub'),
           branch: z.string().optional(),
+          offset: z.number().optional().describe('Start char offset (for chunked reads of large files)'),
+          limit: z.number().optional().describe('Max chars to return (default 6000, hard max 12000)'),
         }),
         execute: async (params: any) => {
           const repo = params.repo || DEFAULT_REPO;
@@ -125,8 +150,22 @@ export async function POST(req: Request) {
           if (!r.ok) return { error: `GitHub ${r.status}: ${(await r.json()).message}` };
           const d: any = await r.json();
           if (Array.isArray(d)) return { error: `${params.path} is a directory — use listFiles instead` };
-          const content = Buffer.from(d.content, 'base64').toString('utf8');
-          return { path: params.path, repo, branch, size: d.size, content };
+          const fullContent = Buffer.from(d.content, 'base64').toString('utf8');
+          const offset = params.offset || 0;
+          const limit = Math.min(params.limit || 6000, 12000);
+          const content = fullContent.slice(offset, offset + limit);
+          const truncated = fullContent.length > offset + limit;
+          return {
+            path: params.path,
+            repo,
+            branch,
+            totalSize: d.size,
+            totalChars: fullContent.length,
+            offset,
+            content,
+            truncated,
+            ...(truncated ? { hint: `File continues at offset=${offset + limit}` } : {}),
+          };
         },
       }),
 
@@ -246,27 +285,44 @@ export async function POST(req: Request) {
       }),
 
       webFetch: tool({
-        description: 'Fetch a live web page and return its text content (HTML stripped). Use to see the actual rendered talent-visas.com pages or competitor sites.',
+        description: 'Fetch a live web page and return its text content (HTML stripped). Returns up to 2500 chars by default — call again with offset for more. Many competitor sites block scrapers (Cloudflare 403); if you hit one, move on rather than retrying.',
         inputSchema: z.object({
           url: z.string().describe('Full URL to fetch, e.g. https://talent-visas.com/eb-2-niw'),
+          offset: z.number().optional().describe('Char offset for chunked reads'),
+          limit: z.number().optional().describe('Max chars (default 2500, hard max 6000)'),
         }),
         execute: async (params: any) => {
           try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 8000);
             const res = await fetch(params.url, {
               headers: { 'User-Agent': 'Mozilla/5.0 TalentVisasAgent/1.0' },
+              signal: controller.signal,
             });
+            clearTimeout(timeout);
             const html = await res.text();
-            // Strip scripts, styles, then HTML tags
-            const text = html
+            const fullText = html
               .replace(/<script[\s\S]*?<\/script>/gi, '')
               .replace(/<style[\s\S]*?<\/style>/gi, '')
               .replace(/<[^>]+>/g, ' ')
               .replace(/\s+/g, ' ')
-              .trim()
-              .slice(0, 8000);
-            return { url: params.url, status: res.status, contentType: res.headers.get('content-type'), text };
+              .trim();
+            const offset = params.offset || 0;
+            const limit = Math.min(params.limit || 2500, 6000);
+            const text = fullText.slice(offset, offset + limit);
+            const truncated = fullText.length > offset + limit;
+            return {
+              url: params.url,
+              status: res.status,
+              contentType: res.headers.get('content-type'),
+              totalChars: fullText.length,
+              offset,
+              text,
+              truncated,
+              ...(truncated ? { hint: `Page continues at offset=${offset + limit}` } : {}),
+            };
           } catch (e: any) {
-            return { error: e?.message || 'Fetch failed' };
+            return { error: e?.name === 'AbortError' ? 'Fetch timed out after 8s' : (e?.message || 'Fetch failed') };
           }
         },
       }),

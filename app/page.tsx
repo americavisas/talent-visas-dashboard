@@ -1,8 +1,8 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { useState } from 'react';
-import { Send, Globe, Target, BarChart3, Search, Zap, ChevronRight, Bot, User } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Send, Globe, Target, BarChart3, Search, Zap, ChevronRight, Bot, User, Square, AlertCircle } from 'lucide-react';
 
 const QUICK_ACTIONS = [
   { label: 'O-1B Landing Page', prompt: 'Create a complete O-1B extraordinary ability landing page for performing artists and entertainers for talent-visas.com', icon: '🌐' },
@@ -45,10 +45,42 @@ function ToolResult({ toolName, result }: { toolName: string; result: unknown })
 }
 
 export default function Dashboard() {
-  const { messages, sendMessage, status } = useChat();
+  const { messages, sendMessage, status, stop, error } = useChat();
   const [input, setInput] = useState('');
 
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  // Track elapsed time and current activity for visible "thinking" state
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const startedAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isLoading && startedAtRef.current === null) {
+      startedAtRef.current = Date.now();
+    }
+    if (!isLoading) {
+      startedAtRef.current = null;
+      setElapsedSec(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      if (startedAtRef.current) setElapsedSec(Math.floor((Date.now() - startedAtRef.current) / 1000));
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isLoading]);
+
+  // Derive what the agent is currently doing from the last assistant message
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  const stepCount = lastAssistant?.parts?.filter((p: { type: string }) => p.type !== 'text' && (p.type === 'dynamic-tool' || (typeof p.type === 'string' && p.type.startsWith('tool-')))).length ?? 0;
+  const lastTool = lastAssistant?.parts?.slice().reverse().find((p: { type: string }) => p.type === 'dynamic-tool' || (typeof p.type === 'string' && p.type.startsWith('tool-'))) as { type: string; toolName?: string; state: string } | undefined;
+  const currentTool = lastTool?.toolName ?? lastTool?.type?.replace('tool-', '');
+  const currentToolState = lastTool?.state;
+
+  // Auto-scroll to bottom on new messages
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isLoading, elapsedSec]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,18 +262,55 @@ export default function Dashboard() {
 
           {isLoading && (
             <div className="flex gap-3">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 mt-1 animate-pulse">
                 <Bot size={16} className="text-white" />
               </div>
-              <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm">
-                <div className="flex gap-1">
-                  {[0, 150, 300].map((delay) => (
-                    <div key={delay} className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
-                  ))}
+              <div className="flex-1 max-w-2xl">
+                <div className="bg-blue-50 border border-blue-200 px-4 py-3 rounded-2xl rounded-tl-sm">
+                  <div className="flex items-center gap-2 text-sm text-blue-800 font-medium">
+                    <div className="flex gap-1">
+                      {[0, 150, 300].map((delay) => (
+                        <div key={delay} className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                      ))}
+                    </div>
+                    <span>
+                      {status === 'submitted' && 'Thinking…'}
+                      {status === 'streaming' && currentTool && currentToolState !== 'output-available' && (
+                        <>Running <span className="font-mono text-blue-700">{currentTool}</span>…</>
+                      )}
+                      {status === 'streaming' && (!currentTool || currentToolState === 'output-available') && 'Working…'}
+                    </span>
+                    <span className="ml-auto flex items-center gap-3 text-xs text-blue-600/70 font-normal">
+                      {stepCount > 0 && <span>step {stepCount}/20</span>}
+                      <span>{elapsedSec}s</span>
+                      <button
+                        onClick={() => stop?.()}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-blue-200 hover:bg-blue-100 text-blue-700"
+                        title="Stop the agent"
+                      >
+                        <Square size={10} fill="currentColor" /> Stop
+                      </button>
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
           )}
+
+          {error && !isLoading && (
+            <div className="flex gap-3">
+              <div className="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center shrink-0 mt-1">
+                <AlertCircle size={16} className="text-white" />
+              </div>
+              <div className="flex-1 max-w-2xl bg-red-50 border border-red-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-red-800">
+                <div className="font-medium mb-1">The agent ran into a problem</div>
+                <div className="text-xs text-red-700/80 break-words">{error.message || 'Unknown error'}</div>
+                <div className="text-xs text-red-600/60 mt-2">Tip: ask in smaller chunks (one task at a time) — context can blow up when chaining many large tool results.</div>
+              </div>
+            </div>
+          )}
+
+          <div ref={scrollRef} />
         </div>
 
         {/* Input */}
