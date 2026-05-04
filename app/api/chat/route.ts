@@ -7,40 +7,55 @@ import { z } from 'zod';
 const DEFAULT_REPO = 'americavisas/lighthouse-talent-hub';
 const DEFAULT_BRANCH = 'main';
 
+// Friendly project name → Vercel project ID
+const VERCEL_PROJECTS: Record<string, string> = {
+  'lighthouse-talent-hub': 'prj_iZ6rdBVdjhZPjpRmEhHtbKS07Qu5',
+  'talent-visas-dashboard': 'prj_fPKjaCMNSHuoWZbqAcfsps5dbpQZ',
+  'talent-flow': 'prj_saFtPBX2futNW1t7zoAlPnJvHOOK',
+  'visa-dream-launch': 'prj_Gysa6ZDkWZAZavS2onbt8cDM81TA',
+  'bridges-launchpad': 'prj_ugwCBzgsN8sdjefTPBU73HQPA13z',
+  'visa-media-gateway': 'prj_kKq8jYMJVFreaoCxZpgd3jZRVVQO',
+};
+
 const SYSTEM_PROMPT = `You are the digital marketing command center for talent-visas.com — an immigration law firm specializing in US talent visas (EB-1, EB-2 NIW, O-1, H-1B, L-1, EB-5, TN and more).
 
-You manage everything:
-- Google Ads: strategy, keywords, ad copy, campaigns, bidding
-- Website: content, landing pages, SEO (GitHub repo: ${DEFAULT_REPO})
-- Social media: LinkedIn and Instagram posts
-- Analytics: Google Analytics 4 and Search Console data
-- Research: competitor analysis, USCIS news, keyword trends
+You manage:
+- Website code & landing pages (GitHub: ${DEFAULT_REPO}, framework: Vite + React + React Router, pages live in src/pages/)
+- Google Ads: strategy, keywords, ad copy
+- Social media, analytics, competitor research
 
-Your personality: direct, strategic, action-oriented. Don't just advise — execute.
-When you identify something to fix, fix it. When you suggest a landing page, build it.
+# YOUR JOB IS TO EXECUTE, NOT TO ASK
 
-You have AGENTIC tools — chain them. Don't just respond, investigate then act:
-- listFiles + readFile + searchCode → understand the codebase before editing
-- editFile / writeFile → make changes (commits to GitHub, auto-deploys via Vercel)
-- webFetch → read live pages on talent-visas.com to see what users actually see
-- webSearch → competitor research, USCIS news (returns placeholder until search API is wired)
-- generate* (keywords, ad copy, landing page, blog, social) → fast templates for common requests
+When the user says "fix X", "update Y", "change Z" — DO IT. Don't say "I can do this — should I?" — make the change, push it, watch it deploy, verify on the live site, then report.
 
-WORKFLOW for "fix the X page":
-1. webFetch the live URL to see current state
-2. listFiles + readFile to find the source in ${DEFAULT_REPO}
-3. editFile to make surgical changes (or writeFile to replace whole file)
-4. Tell the user what you changed and the live URL (deploys in ~1 minute)
+# THE STANDARD WORKFLOW (memorize this)
 
-If 'repo' is not provided to a tool, default to '${DEFAULT_REPO}'.
-If 'branch' is not provided, default to '${DEFAULT_BRANCH}'.
+For ANY website change request:
 
-Key context:
-- Domain: talent-visas.com
-- GitHub: github.com/${DEFAULT_REPO}
-- Framework: Next.js (App Router)
-- Deployment: Vercel
-- Target audience: high-skilled professionals seeking US talent visas`;
+  1. **INVESTIGATE** — webFetch the live URL + readFile/searchCode the source. Always look before editing.
+  2. **EDIT** — editFile (preferred for small changes) or writeFile (full replace). This commits to GitHub.
+  3. **WATCH THE DEPLOY** — call vercelLatestDeploy('lighthouse-talent-hub') and poll until state is READY (or ERROR).
+  4. **IF DEPLOY ERROR** — call vercelBuildLogs(deploymentId) to find the cause, fix it, repeat from step 2.
+  5. **VERIFY** — webFetch the live URL again to confirm your change rendered.
+  6. **REPORT** — tell the user: what you changed, deploy status, live URL, screenshot-style summary of what's now visible.
+
+# CRITICAL RULES
+
+- The repo is **Vite + React + React Router**, NOT Next.js. Pages live in \`src/pages/*.tsx\` with routes defined in \`src/App.tsx\` (or similar). Never write to \`app/\` paths.
+- Repo defaults: repo='${DEFAULT_REPO}', branch='${DEFAULT_BRANCH}'.
+- The dashboard's own project (talent-visas-dashboard) is different from the website (lighthouse-talent-hub). Don't confuse them.
+- After editFile/writeFile commits, Vercel auto-deploys. ALWAYS poll the deploy with vercelLatestDeploy until READY before reporting success.
+- If a deploy is failing, READ THE BUILD LOGS, then fix the actual cause. Don't just retry.
+- Never ask permission for routine fixes. The user wants you to act.
+
+# Tools at your disposal
+
+- **GitHub**: readFile, writeFile, editFile, listFiles, searchCode
+- **Web**: webFetch (read any URL), webSearch (placeholder)
+- **Vercel**: vercelLatestDeploy, vercelBuildLogs, vercelRuntimeLogs, vercelTriggerDeploy
+- **Templates**: generateKeywords, generateAdCopy, recommendBudget, generateLandingPage, generateBlogPost, generateSocialPost, analyzeCompetitor
+
+Be terse in chat. Show your work via tool calls. Final reply: 2–4 sentences max with the live URL.`;
 
 // ── GitHub helpers ────────────────────────────────────────────
 async function gh(path: string, init: RequestInit = {}) {
@@ -63,6 +78,26 @@ async function getFileSha(repo: string, path: string, branch: string): Promise<s
   if (r.status !== 200) return null;
   const d: any = await r.json();
   return d.sha || null;
+}
+
+// ── Vercel helpers ────────────────────────────────────────────
+async function vercel(path: string, init: RequestInit = {}) {
+  const token = process.env.VERCEL_API_TOKEN;
+  const team = process.env.VERCEL_TEAM_ID;
+  if (!token) throw new Error('VERCEL_API_TOKEN not configured');
+  const sep = path.includes('?') ? '&' : '?';
+  const url = `https://api.vercel.com${path}${team ? `${sep}teamId=${team}` : ''}`;
+  return fetch(url, {
+    ...init,
+    headers: { 'Authorization': `Bearer ${token}`, ...(init.headers || {}) },
+  });
+}
+
+function resolveProject(name: string): string {
+  if (name && name.startsWith('prj_')) return name;
+  const id = VERCEL_PROJECTS[name];
+  if (!id) throw new Error(`Unknown Vercel project '${name}'. Known: ${Object.keys(VERCEL_PROJECTS).join(', ')}`);
+  return id;
 }
 
 export async function POST(req: Request) {
@@ -232,6 +267,138 @@ export async function POST(req: Request) {
             return { url: params.url, status: res.status, contentType: res.headers.get('content-type'), text };
           } catch (e: any) {
             return { error: e?.message || 'Fetch failed' };
+          }
+        },
+      }),
+
+      // ── Vercel tools ───────────────────────────────────────
+      vercelLatestDeploy: tool({
+        description: 'Get the latest production deployment for a Vercel project. Use after committing to check if deploy succeeded. Project is the friendly name like "lighthouse-talent-hub".',
+        inputSchema: z.object({
+          project: z.string().describe('Project name, e.g. "lighthouse-talent-hub"'),
+          waitForReady: z.boolean().optional().describe('If true, polls every 8s until READY/ERROR (max 90s). Use after a commit.'),
+        }),
+        execute: async (params: any) => {
+          try {
+            const projectId = resolveProject(params.project);
+            const fetchOne = async () => {
+              const r = await vercel(`/v6/deployments?projectId=${projectId}&limit=1&target=production`);
+              if (!r.ok) return { error: `Vercel ${r.status}` };
+              const d: any = await r.json();
+              const dep = d.deployments?.[0];
+              if (!dep) return { error: 'No deployments found' };
+              return {
+                id: dep.uid,
+                state: dep.state,
+                url: dep.url ? `https://${dep.url}` : null,
+                createdAt: new Date(dep.created).toISOString(),
+                commitMessage: (dep.meta?.githubCommitMessage || '').split('\n')[0],
+                commitSha: dep.meta?.githubCommitSha?.slice(0, 7),
+              };
+            };
+            if (!params.waitForReady) return await fetchOne();
+            // Poll mode
+            for (let i = 0; i < 12; i++) {
+              const r: any = await fetchOne();
+              if (r.error) return r;
+              if (r.state === 'READY' || r.state === 'ERROR' || r.state === 'CANCELED') return r;
+              await new Promise((res) => setTimeout(res, 8000));
+            }
+            return { error: 'Timed out after 90s — check vercelLatestDeploy again' };
+          } catch (e: any) {
+            return { error: e?.message };
+          }
+        },
+      }),
+
+      vercelBuildLogs: tool({
+        description: 'Get the build logs for a Vercel deployment. Call this when a deploy state is ERROR to find the actual cause. Returns last 50 log lines.',
+        inputSchema: z.object({
+          deploymentId: z.string().describe('Deployment ID like "dpl_..."'),
+        }),
+        execute: async (params: any) => {
+          try {
+            const r = await vercel(`/v3/deployments/${params.deploymentId}/events`);
+            if (!r.ok) return { error: `Vercel ${r.status}` };
+            const text = await r.text();
+            const lines = text.trim().split('\n').slice(-50);
+            const events: any[] = [];
+            for (const l of lines) {
+              try {
+                const e = JSON.parse(l);
+                if (e.text && e.text.trim()) events.push({ type: e.type, text: e.text.slice(0, 300) });
+              } catch {}
+            }
+            const errors = events.filter((e) => e.type === 'stderr' || /error/i.test(e.text));
+            return { totalEvents: events.length, errors: errors.slice(-15), recent: events.slice(-15) };
+          } catch (e: any) {
+            return { error: e?.message };
+          }
+        },
+      }),
+
+      vercelRuntimeLogs: tool({
+        description: 'Get runtime logs (console.log/errors from serverless functions) for a Vercel project. Useful for debugging "site responds but feature broken" issues.',
+        inputSchema: z.object({
+          project: z.string(),
+          since: z.string().optional().describe('Relative time like "1h" or "30m", default "1h"'),
+          query: z.string().optional().describe('Optional substring filter'),
+        }),
+        execute: async (params: any) => {
+          try {
+            const projectId = resolveProject(params.project);
+            // Vercel runtime log API requires the deployment ID; instead fetch the latest prod and use its ID
+            const dr = await vercel(`/v6/deployments?projectId=${projectId}&limit=1&target=production`);
+            const dd: any = await dr.json();
+            const depId = dd.deployments?.[0]?.uid;
+            if (!depId) return { error: 'No deployment to fetch logs from' };
+            const since = params.since || '1h';
+            const r = await vercel(`/v1/projects/${projectId}/runtime-logs?since=${since}`);
+            if (!r.ok) return { error: `Vercel ${r.status}` };
+            const text = await r.text();
+            const lines = text.trim().split('\n').slice(-50);
+            const events: any[] = [];
+            for (const l of lines) {
+              try {
+                const e = JSON.parse(l);
+                if (params.query && !JSON.stringify(e).toLowerCase().includes(params.query.toLowerCase())) continue;
+                events.push({ time: e.timestampInMs ? new Date(e.timestampInMs).toISOString() : null, level: e.level, message: (e.message || '').slice(0, 300) });
+              } catch {}
+            }
+            return { count: events.length, events: events.slice(-20) };
+          } catch (e: any) {
+            return { error: e?.message };
+          }
+        },
+      }),
+
+      vercelTriggerDeploy: tool({
+        description: 'Manually trigger a production deploy for a Vercel project from main branch. Normally not needed — git pushes auto-deploy. Use only when retrying after a fix without a new commit.',
+        inputSchema: z.object({
+          project: z.string(),
+          repo: z.string().optional().describe('GitHub owner/repo, default americavisas/lighthouse-talent-hub'),
+          branch: z.string().optional(),
+        }),
+        execute: async (params: any) => {
+          try {
+            const repo = params.repo || DEFAULT_REPO;
+            const [org, name] = repo.split('/');
+            const branch = params.branch || DEFAULT_BRANCH;
+            const r = await vercel(`/v13/deployments`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: params.project,
+                project: params.project,
+                target: 'production',
+                gitSource: { type: 'github', org, repo: name, ref: branch },
+              }),
+            });
+            const d: any = await r.json();
+            if (!r.ok) return { error: d.error?.message || `Vercel ${r.status}` };
+            return { id: d.id, url: d.url, state: d.readyState };
+          } catch (e: any) {
+            return { error: e?.message };
           }
         },
       }),
