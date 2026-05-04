@@ -1,14 +1,17 @@
 // @ts-nocheck
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { anthropic } from '@ai-sdk/anthropic';
-import { streamText, tool, convertToModelMessages } from 'ai';
+import { streamText, tool, convertToModelMessages, stepCountIs } from 'ai';
 import { z } from 'zod';
+
+const DEFAULT_REPO = 'americavisas/lighthouse-talent-hub';
+const DEFAULT_BRANCH = 'main';
 
 const SYSTEM_PROMPT = `You are the digital marketing command center for talent-visas.com — an immigration law firm specializing in US talent visas (EB-1, EB-2 NIW, O-1, H-1B, L-1, EB-5, TN and more).
 
 You manage everything:
 - Google Ads: strategy, keywords, ad copy, campaigns, bidding
-- Website: content, landing pages, SEO (GitHub repo: americavisas/lighthouse-talent-hub)
+- Website: content, landing pages, SEO (GitHub repo: ${DEFAULT_REPO})
 - Social media: LinkedIn and Instagram posts
 - Analytics: Google Analytics 4 and Search Console data
 - Research: competitor analysis, USCIS news, keyword trends
@@ -16,16 +19,51 @@ You manage everything:
 Your personality: direct, strategic, action-oriented. Don't just advise — execute.
 When you identify something to fix, fix it. When you suggest a landing page, build it.
 
-IMPORTANT: The generateLandingPage tool actually commits the page to the lighthouse-talent-hub
-GitHub repo and triggers a Vercel deploy. After calling it successfully, tell the user the live
-URL where the page will appear (talent-visas.com/<slug>) and that it'll be live in ~1 minute.
+You have AGENTIC tools — chain them. Don't just respond, investigate then act:
+- listFiles + readFile + searchCode → understand the codebase before editing
+- editFile / writeFile → make changes (commits to GitHub, auto-deploys via Vercel)
+- webFetch → read live pages on talent-visas.com to see what users actually see
+- webSearch → competitor research, USCIS news (returns placeholder until search API is wired)
+- generate* (keywords, ad copy, landing page, blog, social) → fast templates for common requests
+
+WORKFLOW for "fix the X page":
+1. webFetch the live URL to see current state
+2. listFiles + readFile to find the source in ${DEFAULT_REPO}
+3. editFile to make surgical changes (or writeFile to replace whole file)
+4. Tell the user what you changed and the live URL (deploys in ~1 minute)
+
+If 'repo' is not provided to a tool, default to '${DEFAULT_REPO}'.
+If 'branch' is not provided, default to '${DEFAULT_BRANCH}'.
 
 Key context:
 - Domain: talent-visas.com
-- GitHub: github.com/americavisas/lighthouse-talent-hub
-- Framework: Next.js
+- GitHub: github.com/${DEFAULT_REPO}
+- Framework: Next.js (App Router)
 - Deployment: Vercel
 - Target audience: high-skilled professionals seeking US talent visas`;
+
+// ── GitHub helpers ────────────────────────────────────────────
+async function gh(path: string, init: RequestInit = {}) {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error('GITHUB_TOKEN not configured');
+  const res = await fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(init.headers || {}),
+    },
+  });
+  return res;
+}
+
+async function getFileSha(repo: string, path: string, branch: string): Promise<string | null> {
+  const r = await gh(`/repos/${repo}/contents/${path}?ref=${branch}`);
+  if (r.status !== 200) return null;
+  const d: any = await r.json();
+  return d.sha || null;
+}
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
@@ -34,7 +72,171 @@ export async function POST(req: Request) {
     model: anthropic('claude-sonnet-4-6'),
     system: SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
+    stopWhen: stepCountIs(20),
     tools: {
+      // ── General-purpose agentic tools ──────────────────────
+      readFile: tool({
+        description: 'Read a file from a GitHub repo. Defaults to americavisas/lighthouse-talent-hub on main.',
+        inputSchema: z.object({
+          path: z.string().describe('Path inside the repo, e.g. "app/page.tsx"'),
+          repo: z.string().optional().describe('owner/repo, default americavisas/lighthouse-talent-hub'),
+          branch: z.string().optional(),
+        }),
+        execute: async (params: any) => {
+          const repo = params.repo || DEFAULT_REPO;
+          const branch = params.branch || DEFAULT_BRANCH;
+          const r = await gh(`/repos/${repo}/contents/${params.path}?ref=${branch}`);
+          if (r.status === 404) return { error: `File not found: ${params.path}` };
+          if (!r.ok) return { error: `GitHub ${r.status}: ${(await r.json()).message}` };
+          const d: any = await r.json();
+          if (Array.isArray(d)) return { error: `${params.path} is a directory — use listFiles instead` };
+          const content = Buffer.from(d.content, 'base64').toString('utf8');
+          return { path: params.path, repo, branch, size: d.size, content };
+        },
+      }),
+
+      writeFile: tool({
+        description: 'Create or overwrite a file in a GitHub repo and commit it. Auto-deploys via Vercel on the lighthouse-talent-hub repo.',
+        inputSchema: z.object({
+          path: z.string(),
+          content: z.string().describe('Full file contents'),
+          message: z.string().describe('Commit message'),
+          repo: z.string().optional(),
+          branch: z.string().optional(),
+        }),
+        execute: async (params: any) => {
+          const repo = params.repo || DEFAULT_REPO;
+          const branch = params.branch || DEFAULT_BRANCH;
+          const sha = await getFileSha(repo, params.path, branch);
+          const r = await gh(`/repos/${repo}/contents/${params.path}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: params.message,
+              content: Buffer.from(params.content, 'utf8').toString('base64'),
+              branch,
+              ...(sha ? { sha } : {}),
+            }),
+          });
+          const d: any = await r.json();
+          if (!r.ok) return { error: d.message || `GitHub ${r.status}` };
+          return {
+            status: sha ? '✅ Updated' : '✅ Created',
+            path: params.path,
+            commitUrl: d.commit?.html_url,
+            note: 'Auto-deploys via Vercel in ~1 min',
+          };
+        },
+      }),
+
+      editFile: tool({
+        description: 'Surgical edit: read a file, replace oldText with newText, commit. Use for small changes. oldText must match EXACTLY (whitespace and all).',
+        inputSchema: z.object({
+          path: z.string(),
+          oldText: z.string().describe('Exact text to find (must be unique in file)'),
+          newText: z.string().describe('Replacement text'),
+          message: z.string().describe('Commit message'),
+          repo: z.string().optional(),
+          branch: z.string().optional(),
+        }),
+        execute: async (params: any) => {
+          const repo = params.repo || DEFAULT_REPO;
+          const branch = params.branch || DEFAULT_BRANCH;
+          const r = await gh(`/repos/${repo}/contents/${params.path}?ref=${branch}`);
+          if (!r.ok) return { error: `Cannot read ${params.path}: ${r.status}` };
+          const d: any = await r.json();
+          const content = Buffer.from(d.content, 'base64').toString('utf8');
+          const occurrences = content.split(params.oldText).length - 1;
+          if (occurrences === 0) return { error: 'oldText not found in file' };
+          if (occurrences > 1) return { error: `oldText appears ${occurrences} times — make it more specific` };
+          const newContent = content.replace(params.oldText, params.newText);
+          const put = await gh(`/repos/${repo}/contents/${params.path}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: params.message,
+              content: Buffer.from(newContent, 'utf8').toString('base64'),
+              branch,
+              sha: d.sha,
+            }),
+          });
+          const pd: any = await put.json();
+          if (!put.ok) return { error: pd.message || `Commit failed ${put.status}` };
+          return { status: '✅ Edited', path: params.path, commitUrl: pd.commit?.html_url };
+        },
+      }),
+
+      listFiles: tool({
+        description: 'List files in a directory of a GitHub repo. Use "" for root.',
+        inputSchema: z.object({
+          path: z.string().default('').describe('Directory path; "" for root'),
+          repo: z.string().optional(),
+          branch: z.string().optional(),
+        }),
+        execute: async (params: any) => {
+          const repo = params.repo || DEFAULT_REPO;
+          const branch = params.branch || DEFAULT_BRANCH;
+          const r = await gh(`/repos/${repo}/contents/${params.path || ''}?ref=${branch}`);
+          if (!r.ok) return { error: `${r.status}: ${(await r.json()).message}` };
+          const d: any = await r.json();
+          if (!Array.isArray(d)) return { error: `${params.path} is a file — use readFile` };
+          return {
+            path: params.path || '/',
+            entries: d.map((e: any) => ({ name: e.name, type: e.type, size: e.size })),
+          };
+        },
+      }),
+
+      searchCode: tool({
+        description: 'Search code across a GitHub repo. Returns matching file paths + snippets.',
+        inputSchema: z.object({
+          query: z.string().describe('Search query, e.g. "EB-2 NIW" or "function calculateBudget"'),
+          repo: z.string().optional(),
+        }),
+        execute: async (params: any) => {
+          const repo = params.repo || DEFAULT_REPO;
+          const q = encodeURIComponent(`${params.query} repo:${repo}`);
+          const r = await gh(`/search/code?q=${q}&per_page=20`);
+          if (!r.ok) return { error: `${r.status}: ${(await r.json()).message}` };
+          const d: any = await r.json();
+          return {
+            totalCount: d.total_count,
+            results: (d.items || []).map((it: any) => ({
+              path: it.path,
+              url: it.html_url,
+              repository: it.repository?.full_name,
+            })),
+          };
+        },
+      }),
+
+      webFetch: tool({
+        description: 'Fetch a live web page and return its text content (HTML stripped). Use to see the actual rendered talent-visas.com pages or competitor sites.',
+        inputSchema: z.object({
+          url: z.string().describe('Full URL to fetch, e.g. https://talent-visas.com/eb-2-niw'),
+        }),
+        execute: async (params: any) => {
+          try {
+            const res = await fetch(params.url, {
+              headers: { 'User-Agent': 'Mozilla/5.0 TalentVisasAgent/1.0' },
+            });
+            const html = await res.text();
+            // Strip scripts, styles, then HTML tags
+            const text = html
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 8000);
+            return { url: params.url, status: res.status, contentType: res.headers.get('content-type'), text };
+          } catch (e: any) {
+            return { error: e?.message || 'Fetch failed' };
+          }
+        },
+      }),
+
+      // ── Specialized shortcuts (kept) ───────────────────────
       generateKeywords: tool({
         description: 'Generate Google Ads keywords for a specific visa type, organized by match type and ad group',
         inputSchema: z.object({
