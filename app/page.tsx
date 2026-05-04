@@ -2,7 +2,7 @@
 
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState } from 'react';
-import { Send, Globe, Target, BarChart3, Search, Zap, ChevronRight, Bot, User, Square, AlertCircle, Plus } from 'lucide-react';
+import { Send, Zap, ChevronRight, Square, AlertCircle, Plus } from 'lucide-react';
 
 const QUICK_ACTIONS = [
   { label: 'O-1B Landing Page', prompt: 'Create a complete O-1B extraordinary ability landing page for performing artists and entertainers for talent-visas.com', icon: '🌐' },
@@ -34,34 +34,28 @@ function StatCard({
   value,
   delta,
   loading,
-  icon: Icon,
-  color,
-  bg,
 }: {
   label: string;
   value: string;
   delta?: number;
   loading?: boolean;
-  icon: any;
-  color: string;
-  bg: string;
 }) {
-  const deltaColor = delta === undefined ? '' : delta > 0 ? 'text-green-600' : delta < 0 ? 'text-red-500' : 'text-gray-400';
-  const deltaPrefix = delta === undefined ? '' : delta > 0 ? '+' : '';
+  const deltaSign = delta === undefined ? '' : delta > 0 ? '+' : '';
+  const deltaClass = delta === undefined
+    ? ''
+    : delta > 0
+      ? 'text-emerald-600'
+      : delta < 0
+        ? 'text-red-500'
+        : 'text-black/40';
   return (
-    <div className={`flex items-center gap-3 p-2 rounded-lg ${bg}`}>
-      <Icon size={16} className={color} />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs text-gray-500 truncate">{label}</div>
-        <div className="flex items-baseline gap-1.5">
-          <div className={`text-sm font-bold ${color}`}>{loading ? '…' : value}</div>
-          {!loading && delta !== undefined && (
-            <div className={`text-[10px] font-medium ${deltaColor}`}>
-              {deltaPrefix}
-              {delta}%
-            </div>
-          )}
-        </div>
+    <div className="flex items-baseline justify-between py-2.5 border-b border-black/5 last:border-0">
+      <div className="text-[11px] tracking-wider uppercase text-black/40">{label}</div>
+      <div className="flex items-baseline gap-1.5">
+        <div className="text-sm font-medium text-black">{loading ? '…' : value}</div>
+        {!loading && delta !== undefined && (
+          <div className={`text-[10px] ${deltaClass}`}>{deltaSign}{delta}%</div>
+        )}
       </div>
     </div>
   );
@@ -80,16 +74,18 @@ const INTEGRATIONS: { name: string; status: 'live' | 'setup' }[] = [
 function ToolResult({ toolName, result }: { toolName: string; result: unknown }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="my-1 border border-blue-100 rounded-lg overflow-hidden text-sm">
+    <div className="my-1 border border-black/10 overflow-hidden text-sm">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-1.5 bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors text-xs"
+        className="w-full flex items-center justify-between px-3 py-1.5 bg-[#f5f5f3] text-black/70 hover:bg-black/5 transition-colors text-[11px] tracking-wider uppercase"
       >
-        <span className="flex items-center gap-2"><Zap size={12} /> {toolName}</span>
-        <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+        <span className="flex items-center gap-2 font-mono normal-case tracking-normal text-xs">
+          <Zap size={11} /> {toolName}
+        </span>
+        <ChevronRight size={11} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && (
-        <pre className="p-3 bg-gray-50 text-xs overflow-x-auto text-gray-700 max-h-64">
+        <pre className="p-3 bg-white text-[11px] overflow-x-auto text-black/70 max-h-64 font-mono">
           {JSON.stringify(result, null, 2)}
         </pre>
       )}
@@ -121,20 +117,19 @@ function AssistantMessage({ parts }: { parts: UIPart[] }) {
   );
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {parts.map((part, i) => {
         if (part.type === 'text') {
           if (!part.text) return null;
           return (
             <div
               key={i}
-              className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-gray-800 leading-relaxed whitespace-pre-wrap"
+              className="bg-white border border-black/10 px-4 py-3 text-sm text-black/80 leading-relaxed whitespace-pre-wrap"
             >
               {part.text}
             </div>
           );
         }
-        // Tool parts are NOT rendered inline — collapsed into the footer below
         return null;
       })}
 
@@ -142,13 +137,15 @@ function AssistantMessage({ parts }: { parts: UIPart[] }) {
         <div>
           <button
             onClick={() => setShowTools((v) => !v)}
-            className="text-xs text-gray-400 hover:text-blue-600 flex items-center gap-1.5 transition-colors"
+            className="text-[11px] tracking-wider uppercase text-black/30 hover:text-black flex items-center gap-1.5 transition-colors"
           >
-            <Zap size={11} />
+            <Zap size={10} />
             <span>
-              used {toolParts.length} tool{toolParts.length === 1 ? '' : 's'}
+              {toolParts.length} tool{toolParts.length === 1 ? '' : 's'}
               {toolNames.length > 0 && (
-                <span className="text-gray-300"> · {toolNames.slice(0, 4).join(', ')}{toolNames.length > 4 ? '…' : ''}</span>
+                <span className="text-black/20 normal-case tracking-normal font-mono ml-1">
+                  · {toolNames.slice(0, 4).join(', ')}{toolNames.length > 4 ? '…' : ''}
+                </span>
               )}
             </span>
             <ChevronRight size={10} className={`transition-transform ${showTools ? 'rotate-90' : ''}`} />
@@ -163,7 +160,7 @@ function AssistantMessage({ parts }: { parts: UIPart[] }) {
                 return (
                   <div
                     key={i}
-                    className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg"
+                    className="flex items-center gap-2 text-xs text-black/50 bg-[#f5f5f3] px-3 py-1.5 font-mono"
                   >
                     <Zap size={11} className="animate-pulse" />
                     {name} ({part.state})
@@ -283,107 +280,93 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans">
+    <div className="flex h-screen bg-white text-black font-sans">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
+      <aside className="w-72 bg-[#f5f5f3] border-r border-black/10 flex flex-col shrink-0">
         {/* Logo */}
-        <div className="p-5 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <Globe size={18} className="text-white" />
-            </div>
-            <div>
-              <div className="font-bold text-gray-900 text-sm">Talent Visas</div>
-              <div className="text-xs text-gray-500">Marketing Command</div>
-            </div>
+        <div className="px-6 py-6 border-b border-black/10">
+          <div className="flex items-baseline gap-2">
+            <div className="text-base font-medium text-black tracking-tight">Talent Visas</div>
+            <div className="text-[10px] tracking-widest uppercase text-black/30">OS</div>
           </div>
+          <div className="text-xs text-black/40 mt-1">Marketing Command</div>
         </div>
 
         {/* Stats */}
-        <div className="p-4 border-b border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Last 30 days</div>
+        <div className="px-6 py-5 border-b border-black/10">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] tracking-widest uppercase text-black/40">Last 30 days</div>
             {!statsLoading && stats?.ok && (
-              <div className="w-1.5 h-1.5 bg-green-500 rounded-full" title="Live GA4 data" />
+              <span className="flex items-center gap-1 text-[10px] tracking-wider uppercase text-emerald-600">
+                <span className="w-1 h-1 bg-emerald-500 rounded-full" /> Live
+              </span>
             )}
           </div>
-          <div className="space-y-2">
+          <div className="-my-1">
             <StatCard
               label="Visitors"
               value={stats?.ga4 ? formatNumber(stats.ga4.current.users) : '—'}
               delta={stats?.ga4?.delta.users}
               loading={statsLoading}
-              icon={Globe}
-              color="text-purple-600"
-              bg="bg-purple-50"
             />
             <StatCard
               label="Sessions"
               value={stats?.ga4 ? formatNumber(stats.ga4.current.sessions) : '—'}
               delta={stats?.ga4?.delta.sessions}
               loading={statsLoading}
-              icon={BarChart3}
-              color="text-green-600"
-              bg="bg-green-50"
             />
             <StatCard
               label="Conversions"
               value={stats?.ga4 ? formatNumber(stats.ga4.current.conversions) : '—'}
               delta={stats?.ga4?.delta.conversions}
               loading={statsLoading}
-              icon={Target}
-              color="text-blue-600"
-              bg="bg-blue-50"
             />
             <StatCard
               label="Engagement"
               value={stats?.ga4 ? `${stats.ga4.current.engagementRate}%` : '—'}
               loading={statsLoading}
-              icon={Search}
-              color="text-orange-600"
-              bg="bg-orange-50"
             />
           </div>
           {!statsLoading && stats && !stats.ok && (
-            <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded text-[10px] text-red-700">
-              <div className="font-semibold mb-0.5">GA4 not connected</div>
-              <div className="break-words mb-1">{stats.error?.slice(0, 120)}</div>
-              {stats.hint && <div className="text-red-600/80">{stats.hint}</div>}
+            <div className="mt-3 p-2 border border-red-200 bg-red-50/50 text-[10px] text-red-700">
+              <div className="font-medium mb-0.5">GA4 not connected</div>
+              <div className="break-words mb-1 text-red-700/80">{stats.error?.slice(0, 120)}</div>
+              {stats.hint && <div className="text-red-700/60">{stats.hint}</div>}
             </div>
           )}
         </div>
 
         {/* Quick Actions */}
-        <div className="p-4 flex-1 overflow-y-auto">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Quick Actions</div>
-          <div className="space-y-1">
+        <div className="px-6 py-5 flex-1 overflow-y-auto">
+          <div className="text-[10px] tracking-widest uppercase text-black/40 mb-3">Quick actions</div>
+          <div className="space-y-0.5 -mx-2">
             {QUICK_ACTIONS.map((action) => (
               <button
                 key={action.label}
                 onClick={() => sendQuickAction(action.prompt)}
                 disabled={isLoading}
-                className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                className="w-full text-left px-2 py-2 text-sm text-black/70 hover:text-black hover:bg-black/5 transition-colors flex items-center gap-3 disabled:opacity-40"
               >
-                <span>{action.icon}</span>
-                <span>{action.label}</span>
+                <span className="text-base leading-none">{action.icon}</span>
+                <span className="truncate">{action.label}</span>
               </button>
             ))}
           </div>
         </div>
 
         {/* Integrations */}
-        <div className="p-4 border-t border-gray-100">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Integrations</div>
+        <div className="px-6 py-5 border-t border-black/10">
+          <div className="text-[10px] tracking-widest uppercase text-black/40 mb-3">Integrations</div>
           <div className="space-y-1.5">
             {INTEGRATIONS.map((it) => (
               <div key={it.name} className="flex items-center justify-between text-xs">
-                <span className="text-gray-600">{it.name}</span>
+                <span className="text-black/60">{it.name}</span>
                 {it.status === 'live' ? (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium bg-green-50 text-green-600">
-                    <span className="w-1 h-1 bg-green-500 rounded-full" /> Live
+                  <span className="flex items-center gap-1 text-[10px] tracking-wider uppercase text-emerald-600">
+                    <span className="w-1 h-1 bg-emerald-500 rounded-full" /> Live
                   </span>
                 ) : (
-                  <span className="px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-400">Setup</span>
+                  <span className="text-[10px] tracking-wider uppercase text-black/30">Setup</span>
                 )}
               </div>
             ))}
@@ -394,161 +377,149 @@ export default function Dashboard() {
       {/* Main Chat */}
       <main className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shrink-0">
+        <header className="bg-white border-b border-black/10 px-8 py-5 flex items-center justify-between shrink-0">
           <div>
-            <h1 className="font-bold text-gray-900">Marketing Agent</h1>
-            <p className="text-sm text-gray-500">Managing talent-visas.com — ads, website, social &amp; analytics</p>
+            <h1 className="text-base font-medium text-black tracking-tight">
+              <span className="text-black/30">Agent.</span> Marketing
+            </h1>
+            <p className="text-xs text-black/40 mt-0.5">Managing talent-visas.com — ads, website, social &amp; analytics</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={newChat}
               disabled={isLoading || messages.length === 0}
-              className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-full border border-gray-200 hover:border-blue-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-1.5 text-[11px] tracking-widest uppercase text-black/60 hover:text-black hover:bg-black/5 px-3 py-1.5 border border-black/15 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               title="Start a new chat (clears the current conversation; persistent project memory is kept)"
             >
-              <Plus size={14} /> New chat
+              <Plus size={12} /> New chat
             </button>
-            <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-3 py-1.5 rounded-full">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              Agent Ready
+            <div className="flex items-center gap-1.5 text-[10px] tracking-widest uppercase text-emerald-600">
+              <span className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
+              Agent ready
             </div>
           </div>
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+        <div className="flex-1 overflow-y-auto px-8 py-8 space-y-6">
           {messages.length === 0 && (
-            <div className="text-center py-16">
-              <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Bot size={32} className="text-blue-600" />
-              </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">What do you need today?</h2>
-              <p className="text-gray-500 mb-8 max-w-md mx-auto">
-                I manage your Google Ads, create landing pages, write social posts, analyze competitors and more.
+            <div className="max-w-2xl mx-auto py-16">
+              <h2 className="text-3xl md:text-5xl font-normal text-black mb-3 tracking-tight">
+                <span className="text-black/30">Hello.</span> What do you need today?
+              </h2>
+              <p className="text-sm text-black/50 mb-12 max-w-md">
+                I manage your Google Ads, edit landing pages, write social posts, analyze competitors and read GA4 data.
               </p>
-              <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
-                {QUICK_ACTIONS.slice(0, 4).map((action) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-black/10 border border-black/10">
+                {QUICK_ACTIONS.map((action) => (
                   <button
                     key={action.label}
                     onClick={() => sendQuickAction(action.prompt)}
-                    className="p-4 bg-white rounded-xl border border-gray-200 text-left hover:border-blue-300 hover:shadow-sm transition-all group"
+                    disabled={isLoading}
+                    className="bg-white p-5 text-left hover:bg-[#f5f5f3] transition-colors group disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <div className="text-2xl mb-2">{action.icon}</div>
-                    <div className="text-sm font-medium text-gray-800 group-hover:text-blue-700">{action.label}</div>
+                    <div className="text-xl mb-3">{action.icon}</div>
+                    <div className="text-sm font-medium text-black mb-1">{action.label}</div>
+                    <div className="text-[11px] text-black/40 line-clamp-2 leading-relaxed">{action.prompt.slice(0, 80)}…</div>
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {messages.map((message) => (
-            <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {message.role === 'assistant' && (
-                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 mt-1">
-                  <Bot size={16} className="text-white" />
-                </div>
-              )}
-              <div className="max-w-2xl min-w-0">
-                {message.role === 'user' ? (
-                  <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm text-sm">
-                    {message.parts
-                      .filter((p) => p.type === 'text')
-                      .map((p, i) => <span key={i}>{(p as { type: 'text'; text: string }).text}</span>)}
-                  </div>
-                ) : (
-                  <AssistantMessage parts={message.parts ?? []} />
-                )}
-              </div>
-              {message.role === 'user' && (
-                <div className="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center shrink-0 mt-1">
-                  <User size={16} className="text-gray-600" />
-                </div>
-              )}
-            </div>
-          ))}
-
-          {isLoading && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 mt-1 animate-pulse">
-                <Bot size={16} className="text-white" />
-              </div>
-              <div className="flex-1 max-w-2xl">
-                <div className="bg-blue-50 border border-blue-200 px-4 py-3 rounded-2xl rounded-tl-sm">
-                  <div className="flex items-center gap-2 text-sm text-blue-800 font-medium">
-                    <div className="flex gap-1">
-                      {[0, 150, 300].map((delay) => (
-                        <div key={delay} className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
-                      ))}
+          <div className="max-w-3xl mx-auto space-y-6">
+            {messages.map((message) => (
+              <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className="max-w-[80%] min-w-0">
+                  {message.role === 'user' ? (
+                    <div className="bg-black text-white px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap">
+                      {message.parts
+                        .filter((p) => p.type === 'text')
+                        .map((p, i) => <span key={i}>{(p as { type: 'text'; text: string }).text}</span>)}
                     </div>
-                    <span>
-                      {status === 'submitted' && 'Thinking…'}
-                      {status === 'streaming' && currentTool && currentToolState !== 'output-available' && (
-                        <>Running <span className="font-mono text-blue-700">{currentTool}</span>…</>
-                      )}
-                      {status === 'streaming' && (!currentTool || currentToolState === 'output-available') && 'Working…'}
-                    </span>
-                    <span className="ml-auto flex items-center gap-3 text-xs text-blue-600/70 font-normal">
-                      {stepCount > 0 && <span>step {stepCount}/12</span>}
-                      <span>{elapsedSec}s</span>
-                      <button
-                        onClick={() => stop?.()}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-blue-200 hover:bg-blue-100 text-blue-700"
-                        title="Stop the agent"
-                      >
-                        <Square size={10} fill="currentColor" /> Stop
-                      </button>
-                    </span>
-                  </div>
+                  ) : (
+                    <AssistantMessage parts={message.parts ?? []} />
+                  )}
                 </div>
               </div>
-            </div>
-          )}
+            ))}
 
-          {error && !isLoading && (() => {
-            const msg = (error.message || 'Unknown error').toLowerCase();
-            const isNetwork = msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch');
-            return (
-              <div className="flex gap-3">
-                <div className="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center shrink-0 mt-1">
-                  <AlertCircle size={16} className="text-white" />
-                </div>
-                <div className="flex-1 max-w-2xl bg-red-50 border border-red-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-red-800">
-                  <div className="font-medium mb-1">
-                    {isNetwork ? 'The connection dropped before the agent finished' : 'The agent ran into a problem'}
+            {isLoading && (
+              <div className="border border-black/10 bg-[#f5f5f3] px-4 py-3">
+                <div className="flex items-center gap-3 text-sm text-black/70">
+                  <div className="flex gap-1">
+                    {[0, 150, 300].map((delay) => (
+                      <div key={delay} className="w-1 h-1 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                    ))}
                   </div>
-                  <div className="text-xs text-red-700/80 break-words">{error.message || 'Unknown error'}</div>
-                  <div className="text-xs text-red-600/60 mt-2">
+                  <span className="font-medium">
+                    {status === 'submitted' && 'Thinking…'}
+                    {status === 'streaming' && currentTool && currentToolState !== 'output-available' && (
+                      <>Running <span className="font-mono text-black">{currentTool}</span>…</>
+                    )}
+                    {status === 'streaming' && (!currentTool || currentToolState === 'output-available') && 'Working…'}
+                  </span>
+                  <span className="ml-auto flex items-center gap-3 text-[10px] tracking-widest uppercase text-black/40">
+                    {stepCount > 0 && <span>step {stepCount}/12</span>}
+                    <span>{elapsedSec}s</span>
+                    <button
+                      onClick={() => stop?.()}
+                      className="flex items-center gap-1 px-2 py-0.5 bg-white border border-black/15 hover:bg-black hover:text-white text-black/70 transition-colors"
+                      title="Stop the agent"
+                    >
+                      <Square size={9} fill="currentColor" /> Stop
+                    </button>
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {error && !isLoading && (() => {
+              const msg = (error.message || 'Unknown error').toLowerCase();
+              const isNetwork = msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch');
+              return (
+                <div className="border-l-2 border-red-500 bg-red-50/40 px-4 py-3 text-sm">
+                  <div className="flex items-start gap-2 mb-1">
+                    <AlertCircle size={14} className="text-red-600 mt-0.5 shrink-0" />
+                    <div className="font-medium text-red-800">
+                      {isNetwork ? 'The connection dropped before the agent finished' : 'The agent ran into a problem'}
+                    </div>
+                  </div>
+                  <div className="text-xs text-red-700/80 break-words ml-6">{error.message || 'Unknown error'}</div>
+                  <div className="text-xs text-red-600/60 mt-2 ml-6">
                     {isNetwork
-                      ? 'The agent was likely still working when the 5-min function timeout hit. Try the same prompt again — the GitHub commits it already made are saved. Or break the request into smaller pieces.'
-                      : 'Tip: ask in smaller chunks (one task at a time) — context can blow up when chaining many large tool results.'}
+                      ? 'Likely the 5-min function timeout. Any GitHub commits the agent already made are saved. Try again or break into smaller pieces.'
+                      : 'Tip: ask in smaller chunks (one task at a time).'}
                   </div>
                 </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
 
-          <div ref={scrollRef} />
+            <div ref={scrollRef} />
+          </div>
         </div>
 
         {/* Input */}
-        <div className="bg-white border-t border-gray-200 px-6 py-4 shrink-0">
-          <form onSubmit={handleSubmit} className="flex gap-3">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="e.g. Create an O-1B landing page, write an EB-2 NIW post, analyze competitor keywords..."
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50"
-              disabled={isLoading}
-            />
-            <button
-              type="submit"
-              disabled={isLoading || !input.trim()}
-              className="px-5 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              <Send size={16} />
-            </button>
+        <div className="bg-white border-t border-black/10 px-8 py-5 shrink-0">
+          <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
+            <div className="flex gap-2 border border-black/15 focus-within:border-black transition-colors bg-white">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask the agent — edit a page, pull GA4 data, draft an ad…"
+                className="flex-1 px-4 py-3 text-sm focus:outline-none bg-transparent placeholder:text-black/30"
+                disabled={isLoading}
+              />
+              <button
+                type="submit"
+                disabled={isLoading || !input.trim()}
+                className="px-5 bg-yellow-400 text-black hover:bg-yellow-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 text-[11px] tracking-widest uppercase"
+              >
+                <Send size={12} /> Send
+              </button>
+            </div>
           </form>
-          <p className="text-xs text-gray-400 mt-2 text-center">
+          <p className="text-[10px] tracking-widest uppercase text-black/30 mt-3 text-center">
             Powered by Claude · talent-visas.com
           </p>
         </div>
