@@ -1,0 +1,253 @@
+'use client';
+
+import { useChat } from '@ai-sdk/react';
+import { useState } from 'react';
+import { Send, Globe, Target, BarChart3, Search, Zap, ChevronRight, Bot, User } from 'lucide-react';
+
+const QUICK_ACTIONS = [
+  { label: 'O-1B Landing Page', prompt: 'Create a complete O-1B extraordinary ability landing page for performing artists and entertainers for talent-visas.com', icon: '🌐' },
+  { label: 'EB-2 NIW Keywords', prompt: 'Generate a full Google Ads keyword list for EB-2 NIW targeting researchers, PhDs and STEM professionals', icon: '🎯' },
+  { label: 'Competitor Research', prompt: 'Give me a step-by-step plan to analyze competitors like Murthy Law and Fragomen on Google Ads Transparency Center and find keyword gaps I can exploit', icon: '🔍' },
+  { label: 'LinkedIn Post', prompt: 'Write a LinkedIn post about the EB-2 NIW visa for STEM researchers — professional tone, include hashtags', icon: '💼' },
+  { label: 'Budget Plan', prompt: 'I want 10 new clients per month from Google Ads targeting EB-2 NIW, O-1 and EB-1 visas in California and New York. What budget do I need and what strategy should I follow?', icon: '💰' },
+  { label: 'Instagram Post', prompt: 'Write an Instagram post about talent visas for artists and performers — engaging tone with emojis and hashtags', icon: '📸' },
+];
+
+const STATS = [
+  { label: 'Active Campaigns', value: '—', icon: Target, color: 'text-blue-600', bg: 'bg-blue-50' },
+  { label: 'Monthly Ad Spend', value: '—', icon: BarChart3, color: 'text-green-600', bg: 'bg-green-50' },
+  { label: 'Website Visitors', value: '—', icon: Globe, color: 'text-purple-600', bg: 'bg-purple-50' },
+  { label: 'Search Rankings', value: '—', icon: Search, color: 'text-orange-600', bg: 'bg-orange-50' },
+];
+
+const INTEGRATIONS = [
+  'Google Ads', 'Analytics', 'Search Console', 'GitHub', 'LinkedIn', 'Instagram',
+];
+
+function ToolResult({ toolName, result }: { toolName: string; result: unknown }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="my-2 border border-blue-100 rounded-lg overflow-hidden text-sm">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors"
+      >
+        <span className="flex items-center gap-2"><Zap size={14} /> {toolName}</span>
+        <ChevronRight size={14} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && (
+        <pre className="p-3 bg-gray-50 text-xs overflow-x-auto text-gray-700 max-h-64">
+          {JSON.stringify(result, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput } = useChat({
+    api: '/api/chat',
+  });
+
+  const sendQuickAction = (prompt: string) => {
+    setInput(prompt);
+    setTimeout(() => {
+      const form = document.getElementById('chat-form') as HTMLFormElement;
+      form?.requestSubmit();
+    }, 50);
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-50 font-sans">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
+        {/* Logo */}
+        <div className="p-5 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <Globe size={18} className="text-white" />
+            </div>
+            <div>
+              <div className="font-bold text-gray-900 text-sm">Talent Visas</div>
+              <div className="text-xs text-gray-500">Marketing Command</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="p-4 border-b border-gray-100">
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Overview</div>
+          <div className="space-y-2">
+            {STATS.map((stat) => (
+              <div key={stat.label} className={`flex items-center gap-3 p-2 rounded-lg ${stat.bg}`}>
+                <stat.icon size={16} className={stat.color} />
+                <div>
+                  <div className="text-xs text-gray-500">{stat.label}</div>
+                  <div className={`text-sm font-bold ${stat.color}`}>{stat.value}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-2 text-center">Connect APIs to see live data</p>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="p-4 flex-1 overflow-y-auto">
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Quick Actions</div>
+          <div className="space-y-1">
+            {QUICK_ACTIONS.map((action) => (
+              <button
+                key={action.label}
+                onClick={() => sendQuickAction(action.prompt)}
+                className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2"
+              >
+                <span>{action.icon}</span>
+                <span>{action.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Integrations */}
+        <div className="p-4 border-t border-gray-100">
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Integrations</div>
+          <div className="space-y-1.5">
+            {INTEGRATIONS.map((name) => (
+              <div key={name} className="flex items-center justify-between text-xs">
+                <span className="text-gray-600">{name}</span>
+                <span className="px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-400">Setup</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Chat */}
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shrink-0">
+          <div>
+            <h1 className="font-bold text-gray-900">Marketing Agent</h1>
+            <p className="text-sm text-gray-500">Managing talent-visas.com — ads, website, social &amp; analytics</p>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-3 py-1.5 rounded-full">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            Agent Ready
+          </div>
+        </header>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+          {messages.length === 0 && (
+            <div className="text-center py-16">
+              <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Bot size={32} className="text-blue-600" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">What do you need today?</h2>
+              <p className="text-gray-500 mb-8 max-w-md mx-auto">
+                I manage your Google Ads, create landing pages, write social posts, analyze competitors and more.
+              </p>
+              <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
+                {QUICK_ACTIONS.slice(0, 4).map((action) => (
+                  <button
+                    key={action.label}
+                    onClick={() => sendQuickAction(action.prompt)}
+                    className="p-4 bg-white rounded-xl border border-gray-200 text-left hover:border-blue-300 hover:shadow-sm transition-all group"
+                  >
+                    <div className="text-2xl mb-2">{action.icon}</div>
+                    <div className="text-sm font-medium text-gray-800 group-hover:text-blue-700">{action.label}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {messages.map((message) => (
+            <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {message.role === 'assistant' && (
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 mt-1">
+                  <Bot size={16} className="text-white" />
+                </div>
+              )}
+              <div className="max-w-2xl min-w-0">
+                {message.role === 'user' ? (
+                  <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm text-sm">
+                    {typeof message.content === 'string' ? message.content : ''}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {message.parts?.map((part, i) => {
+                      if (part.type === 'text') {
+                        return (
+                          <div key={i} className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                            {part.text}
+                          </div>
+                        );
+                      }
+                      if (part.type === 'tool-invocation') {
+                        const inv = part.toolInvocation;
+                        if (inv.state === 'result') {
+                          return <ToolResult key={i} toolName={inv.toolName} result={inv.result} />;
+                        }
+                        return (
+                          <div key={i} className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
+                            <Zap size={14} className="animate-pulse" />
+                            Running {inv.toolName}...
+                          </div>
+                        );
+                      }
+                      return null;
+                    })}
+                  </div>
+                )}
+              </div>
+              {message.role === 'user' && (
+                <div className="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center shrink-0 mt-1">
+                  <User size={16} className="text-gray-600" />
+                </div>
+              )}
+            </div>
+          ))}
+
+          {isLoading && (
+            <div className="flex gap-3">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
+                <Bot size={16} className="text-white" />
+              </div>
+              <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm">
+                <div className="flex gap-1">
+                  {[0, 150, 300].map((delay) => (
+                    <div key={delay} className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Input */}
+        <div className="bg-white border-t border-gray-200 px-6 py-4 shrink-0">
+          <form id="chat-form" onSubmit={handleSubmit} className="flex gap-3">
+            <input
+              value={input}
+              onChange={handleInputChange}
+              placeholder="e.g. Create an O-1B landing page, write an EB-2 NIW post, analyze competitor keywords..."
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50"
+              disabled={isLoading}
+            />
+            <button
+              type="submit"
+              disabled={isLoading || !input.trim()}
+              className="px-5 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <Send size={16} />
+            </button>
+          </form>
+          <p className="text-xs text-gray-400 mt-2 text-center">
+            Powered by Claude · talent-visas.com
+          </p>
+        </div>
+      </main>
+    </div>
+  );
+}
