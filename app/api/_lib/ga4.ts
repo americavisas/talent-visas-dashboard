@@ -1,15 +1,32 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BetaAnalyticsDataClient } from '@google-analytics/data';
+/**
+ * GA4 Data API client — uses the REST endpoint directly (not the SDK / gRPC)
+ * because the SDK fails opaquely in some serverless environments. This is
+ * lighter, has no native dependencies, and produces clean error messages.
+ */
 
-let cachedClient: BetaAnalyticsDataClient | null = null;
+import crypto from 'crypto';
 
-function getClient(): BetaAnalyticsDataClient {
-  if (cachedClient) return cachedClient;
+interface ServiceAccountJson {
+  client_email: string;
+  private_key: string;
+  token_uri?: string;
+}
+
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
+function loadCredentials(): ServiceAccountJson {
   const json = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
   if (!json) throw new Error('GOOGLE_APPLICATION_CREDENTIALS_JSON env var is not set');
-  const credentials = JSON.parse(json);
-  cachedClient = new BetaAnalyticsDataClient({ credentials });
-  return cachedClient;
+  let parsed: ServiceAccountJson;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e: any) {
+    throw new Error(`GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON: ${e?.message}`);
+  }
+  if (!parsed.client_email) throw new Error('Service account JSON is missing client_email');
+  if (!parsed.private_key) throw new Error('Service account JSON is missing private_key');
+  return parsed;
 }
 
 function getPropertyId(): string {
@@ -18,73 +35,129 @@ function getPropertyId(): string {
   return id;
 }
 
+function base64UrlEncode(buf: Buffer | string): string {
+  const b = typeof buf === 'string' ? Buffer.from(buf) : buf;
+  return b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * Build a JWT signed with the service account's private key, exchange it for
+ * an OAuth2 access token at Google's token endpoint, cache the token until
+ * 5 minutes before expiry.
+ */
+async function getAccessToken(): Promise<string> {
+  const now = Date.now();
+  if (cachedToken && cachedToken.expiresAt > now + 60_000) return cachedToken.token;
+
+  const creds = loadCredentials();
+  const tokenUri = creds.token_uri || 'https://oauth2.googleapis.com/token';
+
+  const header = base64UrlEncode(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const iat = Math.floor(now / 1000);
+  const exp = iat + 3600;
+  const claim = base64UrlEncode(
+    JSON.stringify({
+      iss: creds.client_email,
+      scope: 'https://www.googleapis.com/auth/analytics.readonly',
+      aud: tokenUri,
+      iat,
+      exp,
+    })
+  );
+
+  const signingInput = `${header}.${claim}`;
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(signingInput);
+  const signature = base64UrlEncode(signer.sign(creds.private_key));
+  const jwt = `${signingInput}.${signature}`;
+
+  const tokenRes = await fetch(tokenUri, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    const text = await tokenRes.text();
+    throw new Error(`Token exchange failed (${tokenRes.status}): ${text.slice(0, 300)}`);
+  }
+  const tokenData = (await tokenRes.json()) as { access_token: string; expires_in: number };
+  cachedToken = {
+    token: tokenData.access_token,
+    expiresAt: now + tokenData.expires_in * 1000,
+  };
+  return tokenData.access_token;
+}
+
+async function callGA4(method: string, body: any): Promise<any> {
+  const propertyId = getPropertyId();
+  const token = await getAccessToken();
+  const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:${method}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data: any = {};
+  try { data = text ? JSON.parse(text) : {}; } catch {}
+  if (!res.ok) {
+    const msg = data?.error?.message || text || `GA4 ${res.status}`;
+    const err: any = new Error(msg);
+    err.code = data?.error?.code ?? res.status;
+    err.status = data?.error?.status;
+    throw err;
+  }
+  return data;
+}
+
+// ── Public surface ────────────────────────────────────────────
+
 export interface GA4ReportInput {
   metrics: string[];
   dimensions?: string[];
-  startDate?: string; // 'YYYY-MM-DD' or '7daysAgo' / '30daysAgo' / 'today' / 'yesterday'
+  startDate?: string;
   endDate?: string;
   limit?: number;
-  dimensionFilter?: any;
 }
 
 export async function runGA4Report(input: GA4ReportInput) {
-  const client = getClient();
   const propertyId = getPropertyId();
-  const [response] = await client.runReport({
-    property: `properties/${propertyId}`,
+  const data = await callGA4('runReport', {
     metrics: input.metrics.map((name) => ({ name })),
     dimensions: (input.dimensions || []).map((name) => ({ name })),
-    dateRanges: [
-      {
-        startDate: input.startDate || '30daysAgo',
-        endDate: input.endDate || 'today',
-      },
-    ],
-    limit: input.limit ? Number(input.limit) : 50,
-    ...(input.dimensionFilter ? { dimensionFilter: input.dimensionFilter } : {}),
+    dateRanges: [{ startDate: input.startDate || '30daysAgo', endDate: input.endDate || 'today' }],
+    limit: input.limit || 50,
   });
 
-  // Format response into a tidy shape
-  const rows = (response.rows || []).map((row) => {
-    const dims: Record<string, string> = {};
-    (input.dimensions || []).forEach((name, i) => {
-      dims[name] = row.dimensionValues?.[i]?.value ?? '';
-    });
-    const mets: Record<string, number> = {};
-    input.metrics.forEach((name, i) => {
-      const raw = row.metricValues?.[i]?.value;
-      mets[name] = raw ? Number(raw) : 0;
-    });
-    return { ...dims, ...mets };
+  const rows = (data.rows || []).map((row: any) => {
+    const r: Record<string, any> = {};
+    (input.dimensions || []).forEach((name, i) => { r[name] = row.dimensionValues?.[i]?.value ?? ''; });
+    input.metrics.forEach((name, i) => { r[name] = Number(row.metricValues?.[i]?.value || 0); });
+    return r;
   });
 
   const totals: Record<string, number> = {};
   input.metrics.forEach((name, i) => {
-    const raw = response.totals?.[0]?.metricValues?.[i]?.value;
-    totals[name] = raw ? Number(raw) : 0;
+    totals[name] = Number(data.totals?.[0]?.metricValues?.[i]?.value || 0);
   });
 
   return {
     propertyId,
-    dateRange: {
-      startDate: input.startDate || '30daysAgo',
-      endDate: input.endDate || 'today',
-    },
+    dateRange: { startDate: input.startDate || '30daysAgo', endDate: input.endDate || 'today' },
     rowCount: rows.length,
     rows,
     totals,
   };
 }
 
-/**
- * Get a high-level summary for the sidebar: last 30 days vs prior 30 days.
- * Returns sessions, totalUsers, conversions, plus deltas vs the previous period.
- */
+/** Last 30 days vs prior 30 days, with sessions/users/conversions/engagement deltas. */
 export async function getGA4Summary() {
-  const client = getClient();
   const propertyId = getPropertyId();
-  const [current] = await client.runReport({
-    property: `properties/${propertyId}`,
+  const data = await callGA4('runReport', {
     metrics: [
       { name: 'sessions' },
       { name: 'totalUsers' },
@@ -97,20 +170,13 @@ export async function getGA4Summary() {
     ],
   });
 
-  const get = (rangeIdx: number, metricIdx: number) => {
-    const row = current.rows?.find((r) => r.dimensionValues?.[0]?.value === undefined && rangeIdx === 0)
-      || current.rows?.[rangeIdx];
-    // Multi-range reports return per-range totals
-    const t = current.totals?.[rangeIdx];
-    const v = t?.metricValues?.[metricIdx]?.value;
-    return v ? Number(v) : 0;
-  };
+  const get = (rangeIdx: number, metricIdx: number) =>
+    Number(data.totals?.[rangeIdx]?.metricValues?.[metricIdx]?.value || 0);
 
   const sessions = get(0, 0);
   const users = get(0, 1);
   const conversions = get(0, 2);
   const engagementRate = get(0, 3);
-
   const prevSessions = get(1, 0);
   const prevUsers = get(1, 1);
   const prevConversions = get(1, 2);
@@ -137,21 +203,16 @@ export async function getGA4Summary() {
   };
 }
 
-/** Top N pages by sessions, last 30 days. */
 export async function getTopPages(limit = 10) {
-  const result = await runGA4Report({
+  return runGA4Report({
     metrics: ['sessions', 'conversions'],
     dimensions: ['pagePath'],
     startDate: '30daysAgo',
     endDate: 'today',
     limit,
   });
-  // Sort already done by GA4 (descending by first metric); ensure
-  result.rows.sort((a: any, b: any) => (b.sessions ?? 0) - (a.sessions ?? 0));
-  return result;
 }
 
-/** Top traffic sources, last 30 days. */
 export async function getTopSources(limit = 10) {
   return runGA4Report({
     metrics: ['sessions', 'conversions'],
@@ -162,7 +223,6 @@ export async function getTopSources(limit = 10) {
   });
 }
 
-/** Conversion events by name, last 30 days. */
 export async function getConversionsByEvent(limit = 20) {
   return runGA4Report({
     metrics: ['eventCount'],
