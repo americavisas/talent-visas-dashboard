@@ -11,9 +11,22 @@ The agent can update it via the `rememberThis` (append a note) or `updateMemory`
 
 - **Focus visas:** O-1A (founders, scientists, athletes) and O-1B (artists, performers).
 - Other visas the firm handles but are NOT the current marketing priority: EB-1, EB-2 NIW, H-1B, L-1, EB-5, TN.
-- Domain: **talent-visas.com**
-- Calendly booking: **https://calendly.com/talentvisas/consultation**
-- Owner / sole operator: Joni (info@america-visas.com)
+- Owner / sole operator: Joni (transitioning email from info@america-visas.com → admin@talent-bridges.com for vendor accounts; info@talent-visas.com for client-facing).
+
+### Corporate / brand structure
+
+- **Legal entity (pays bills, signs contracts, registered with D&B):** **SPV Capital**.
+- **Brand parent (the marketing umbrella):** **Talent Medias**, owned by SPV Capital.
+- **Sub-brands / domains:**
+  - `talent-visas.com` — primary client-facing brand (the visa firm). Calendly: https://calendly.com/talentvisas/consultation.
+  - `talent-bridges.com` — used as the admin / vendor-account email domain (admin@talent-bridges.com).
+  - `america-visas.com` — legacy, being phased out (info@america-visas.com still receives some old-account password resets — keep email forwarding active during the transition).
+
+### Google Ads disclosure conventions
+
+- **Funder name on "About this advertiser" panel:** SPV Capital (this is correct and compliant — do NOT change to Talent Visas).
+- **DBA / brand name** in the panel (if Google offers a field): "Talent Visas".
+- **Ad creative + landing pages** continue to show "Talent Visas" — that's the brand prospects recognize.
 
 ## Tech
 
